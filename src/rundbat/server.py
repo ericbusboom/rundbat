@@ -2,9 +2,30 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from rundbat import config, database, discovery
+from rundbat import config, database, discovery, environment, installer
+from rundbat.config import ConfigError
+from rundbat.database import DatabaseError
 
 server = FastMCP("rundbat")
+
+
+def _get_container_name(env: str) -> str:
+    """Look up the container name for an environment from config."""
+    try:
+        env_config = config.load_config(env)
+        db_config = env_config.get("database", {})
+        container = db_config.get("container")
+        if container:
+            return container
+    except ConfigError:
+        pass
+    # Fallback: try dev config for app name
+    try:
+        dev_config = config.load_config("dev")
+        app_name = dev_config.get("app_name", "unknown")
+    except ConfigError:
+        app_name = "unknown"
+    return database.container_name(app_name, env)
 
 
 # --- Discovery tools ---
@@ -25,11 +46,22 @@ def verify_docker() -> dict:
 
 @server.tool()
 def init_project(app_name: str, app_name_source: str) -> dict:
-    """Initialize rundbat config for a project. Creates rundbat.yaml via dotconfig with app name and source."""
+    """Initialize rundbat config for a project. Creates rundbat.yaml via dotconfig, installs MCP config, rules, and hooks."""
     try:
-        return config.init_project(app_name, app_name_source)
-    except config.ConfigError as e:
+        result = config.init_project(app_name, app_name_source)
+    except ConfigError as e:
         return e.to_dict()
+
+    # Install integration files into the project
+    from pathlib import Path
+    project_dir = Path.cwd()
+    try:
+        install_result = installer.install_all(project_dir)
+        result["installer"] = install_result
+    except Exception as e:
+        result["installer_warning"] = f"Could not install integration files: {e}"
+
+    return result
 
 
 @server.tool()
@@ -38,7 +70,7 @@ def set_secret(env: str, key: str, value: str) -> dict:
     try:
         config.save_secret(env, key, value)
         return {"status": "ok", "env": env, "key": key}
-    except config.ConfigError as e:
+    except ConfigError as e:
         return e.to_dict()
 
 
@@ -47,7 +79,7 @@ def check_config_drift(env: str = "dev") -> dict:
     """Check if the app name at its source file differs from the stored name in rundbat config."""
     try:
         return config.check_config_drift(env)
-    except config.ConfigError as e:
+    except ConfigError as e:
         return e.to_dict()
 
 
@@ -55,9 +87,9 @@ def check_config_drift(env: str = "dev") -> dict:
 
 @server.tool()
 def start_database(env: str) -> dict:
-    """Start the Postgres container for a local environment. Creates it if missing."""
+    """Start the Postgres container for a local environment."""
     try:
-        name = database.container_name("unknown", env)  # Will be replaced by env service
+        name = _get_container_name(env)
         status = database.get_container_status(name)
         if status == "running":
             return {"status": "already_running", "container": name}
@@ -65,7 +97,7 @@ def start_database(env: str) -> dict:
             database.start_container(name)
             return {"status": "started", "container": name}
         return {"error": f"Container {name} not found. Use create_environment first."}
-    except database.DatabaseError as e:
+    except DatabaseError as e:
         return e.to_dict()
 
 
@@ -73,10 +105,10 @@ def start_database(env: str) -> dict:
 def stop_database(env: str) -> dict:
     """Stop the Postgres container for a local environment."""
     try:
-        name = database.container_name("unknown", env)  # Will be replaced by env service
+        name = _get_container_name(env)
         database.stop_container(name)
         return {"status": "stopped", "container": name}
-    except database.DatabaseError as e:
+    except DatabaseError as e:
         return e.to_dict()
 
 
@@ -84,10 +116,30 @@ def stop_database(env: str) -> dict:
 def health_check(env: str) -> dict:
     """Check if the database is reachable for a local environment."""
     try:
-        name = database.container_name("unknown", env)  # Will be replaced by env service
+        name = _get_container_name(env)
         return database.health_check(name)
-    except database.DatabaseError as e:
+    except DatabaseError as e:
         return e.to_dict()
+
+
+# --- Environment tools ---
+
+@server.tool()
+def create_environment(name: str, env_type: str = "local-docker") -> dict:
+    """Create a new environment. Generates credentials, allocates port, starts Postgres container, saves config."""
+    return environment.create_environment(name, env_type)
+
+
+@server.tool()
+def get_environment_config(env: str) -> dict:
+    """Load environment config, ensure database is running, check for drift. Single call, complete answer."""
+    return environment.get_environment_config(env)
+
+
+@server.tool()
+def validate_environment(env: str) -> dict:
+    """Full validation of an environment: config completeness, secret presence, container status, connectivity."""
+    return environment.validate_environment(env)
 
 
 def main():

@@ -1,17 +1,17 @@
 ---
-id: "006"
-title: "Environment Service and MCP tool wiring"
-status: todo
+id: '006'
+title: Environment Service and MCP tool wiring
+status: in-progress
 use-cases:
-  - SUC-003
-  - SUC-004
-  - SUC-005
-  - SUC-006
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
 depends-on:
-  - "003"
-  - "004"
-  - "005"
-github-issue: ""
+- '003'
+- '004'
+- '005'
+github-issue: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
