@@ -35,22 +35,22 @@ Installs three things, all via read-merge-write (never overwrite):
 
 ## Acceptance Criteria
 
-- [ ] `src/rundbat/installer.py` module
-- [ ] `install_mcp_config(project_dir)` — merges rundbat into `.mcp.json`
-  - [ ] Preserves existing `mcpServers` entries
-  - [ ] Creates `.mcp.json` if it doesn't exist
-  - [ ] Updates rundbat entry if it already exists (idempotent)
-- [ ] `install_rules(project_dir)` — writes `.claude/rules/rundbat.md`
-  - [ ] Creates `.claude/rules/` directory if needed
-  - [ ] Rule content tells model to use rundbat for deployment tasks
-- [ ] `install_hooks(project_dir)` — merges hook into `.claude/settings.json`
-  - [ ] Preserves existing hooks array entries
-  - [ ] Creates `.claude/settings.json` if it doesn't exist
-  - [ ] Does not duplicate the rundbat hook on repeated runs
-  - [ ] Hook echoes: "If this task involves databases, deployment, or
+- [x] `src/rundbat/installer.py` module
+- [x] `install_mcp_config(project_dir)` — merges rundbat into `.mcp.json`
+  - [x] Preserves existing `mcpServers` entries
+  - [x] Creates `.mcp.json` if it doesn't exist
+  - [x] Updates rundbat entry if it already exists (idempotent)
+- [x] `install_rules(project_dir)` — writes `.claude/rules/rundbat.md`
+  - [x] Creates `.claude/rules/` directory if needed
+  - [x] Rule content tells model to use rundbat for deployment tasks
+- [x] `install_hooks(project_dir)` — merges hook into `.claude/settings.json`
+  - [x] Preserves existing hooks array entries
+  - [x] Creates `.claude/settings.json` if it doesn't exist
+  - [x] Does not duplicate the rundbat hook on repeated runs
+  - [x] Hook echoes: "If this task involves databases, deployment, or
         environment setup, use the rundbat MCP server."
-- [ ] `install_all(project_dir)` — calls all three, returns summary
-- [ ] Idempotent — running twice produces the same result as running once
+- [x] `install_all(project_dir)` — calls all three, returns summary
+- [x] Idempotent — running twice produces the same result as running once
 
 ## Testing
 
