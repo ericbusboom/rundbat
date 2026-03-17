@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: Environment Service and MCP tool wiring
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-004

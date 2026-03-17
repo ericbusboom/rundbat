@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Project Installer
-status: in-progress
+status: done
 use-cases:
 - SUC-008
 depends-on:

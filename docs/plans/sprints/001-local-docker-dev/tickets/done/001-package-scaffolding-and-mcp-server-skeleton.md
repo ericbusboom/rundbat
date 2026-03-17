@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Package scaffolding and MCP server skeleton
-status: in-progress
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''

@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: Config Service
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 - SUC-006

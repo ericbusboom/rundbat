@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Database Service
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 - SUC-004

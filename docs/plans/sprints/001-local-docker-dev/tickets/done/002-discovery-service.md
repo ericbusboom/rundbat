@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Discovery Service
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
