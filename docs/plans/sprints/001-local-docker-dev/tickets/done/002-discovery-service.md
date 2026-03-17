@@ -25,16 +25,16 @@ exist yet and discovery is about presence, not operations).
 
 ## Acceptance Criteria
 
-- [ ] `src/rundbat/discovery.py` module with detection functions
-- [ ] `discover_system` MCP tool registered on the server
-- [ ] Returns OS name and architecture (platform module)
-- [ ] Returns Docker installed/running status and backend (parses `docker info`)
-- [ ] Returns dotconfig installed/initialized status (`dotconfig config`)
-- [ ] Returns Node.js version if present (`node --version`)
-- [ ] Returns existing rundbat config paths if found
-- [ ] `verify_docker` MCP tool — returns pass/fail for `docker info`
-- [ ] Graceful handling when commands are not found (not installed)
-- [ ] Structured return format (dict/JSON with clear field names)
+- [x] `src/rundbat/discovery.py` module with detection functions
+- [x] `discover_system` MCP tool registered on the server
+- [x] Returns OS name and architecture (platform module)
+- [x] Returns Docker installed/running status and backend (parses `docker info`)
+- [x] Returns dotconfig installed/initialized status (`dotconfig config`)
+- [x] Returns Node.js version if present (`node --version`)
+- [x] Returns existing rundbat config paths if found
+- [x] `verify_docker` MCP tool — returns pass/fail for `docker info`
+- [x] Graceful handling when commands are not found (not installed)
+- [x] Structured return format (dict/JSON with clear field names)
 
 ## Testing
 
