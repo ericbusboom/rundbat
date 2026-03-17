@@ -33,24 +33,24 @@ Key behaviors:
 
 ## Acceptance Criteria
 
-- [ ] `src/rundbat/database.py` module with Database Service class/functions
-- [ ] `create_database(env, config)` — runs `docker run` with correct name,
+- [x] `src/rundbat/database.py` module with Database Service class/functions
+- [x] `create_database(env, config)` — runs `docker run` with correct name,
       port, password, database name; verifies with pg_isready
-- [ ] `start_database(env)` MCP tool — starts stopped container, creates
+- [x] `start_database(env)` MCP tool — starts stopped container, creates
       if missing
-- [ ] `stop_database(env)` MCP tool — stops the container
-- [ ] `health_check(env)` MCP tool — runs `docker exec pg_isready`,
+- [x] `stop_database(env)` MCP tool — stops the container
+- [x] `health_check(env)` MCP tool — runs `docker exec pg_isready`,
       returns pass/fail with details
-- [ ] `ensure_running(env, config)` — stopped → restart, missing →
+- [x] `ensure_running(env, config)` — stopped → restart, missing →
       recreate with warning, running → no-op
-- [ ] Container names follow `rundbat-{app_name}-{env}-pg` convention
-- [ ] Database names follow `rundbat_{app_name}_{env}` convention
-- [ ] Port allocation: uses configured port, detects conflicts, auto-assigns
+- [x] Container names follow `rundbat-{app_name}-{env}-pg` convention
+- [x] Database names follow `rundbat_{app_name}_{env}` convention
+- [x] Port allocation: uses configured port, detects conflicts, auto-assigns
       next available port if default is taken
-- [ ] Containers bind to `127.0.0.1` only
-- [ ] Password passed via `POSTGRES_PASSWORD` env var to container
-- [ ] Data-loss warning when recreating a missing container
-- [ ] Subprocess errors return structured error objects
+- [x] Containers bind to `127.0.0.1` only
+- [x] Password passed via `POSTGRES_PASSWORD` env var to container
+- [x] Data-loss warning when recreating a missing container
+- [x] Subprocess errors return structured error objects
 
 ## Testing
 
