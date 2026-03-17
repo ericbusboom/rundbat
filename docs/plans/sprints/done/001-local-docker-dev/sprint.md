@@ -1,17 +1,17 @@
 ---
-id: "001"
-title: "Local Docker Dev"
-status: active
+id: '001'
+title: Local Docker Dev
+status: done
 branch: sprint/001-local-docker-dev
 use-cases:
-  - SUC-001
-  - SUC-002
-  - SUC-003
-  - SUC-004
-  - SUC-005
-  - SUC-006
-  - SUC-007
-  - SUC-008
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
+- SUC-007
+- SUC-008
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
