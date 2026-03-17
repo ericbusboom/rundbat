@@ -1,12 +1,12 @@
 ---
-id: "005"
-title: "Project Installer"
-status: todo
+id: '005'
+title: Project Installer
+status: in-progress
 use-cases:
-  - SUC-008
+- SUC-008
 depends-on:
-  - "001"
-github-issue: ""
+- '001'
+github-issue: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
