@@ -22,15 +22,15 @@ test infrastructure (pytest with a Docker-skip marker).
 
 ## Acceptance Criteria
 
-- [ ] `pyproject.toml` defines a `rundbat` console entry point
-- [ ] `src/rundbat/__init__.py` exists with version
-- [ ] `src/rundbat/server.py` creates a FastMCP server and runs stdio transport
-- [ ] `pipx install -e .` succeeds and `rundbat` command is available
-- [ ] Running `rundbat` starts the MCP server (connects via stdio)
-- [ ] `tests/conftest.py` exists with a `requires_docker` pytest marker
-- [ ] `uv run pytest` runs and passes (even with no tests yet)
-- [ ] Dependencies: `mcp` (FastMCP SDK), `pyyaml`
-- [ ] Dev dependencies: `pytest`
+- [x] `pyproject.toml` defines a `rundbat` console entry point
+- [x] `src/rundbat/__init__.py` exists with version
+- [x] `src/rundbat/server.py` creates a FastMCP server and runs stdio transport
+- [x] `pipx install -e .` succeeds and `rundbat` command is available
+- [x] Running `rundbat` starts the MCP server (connects via stdio)
+- [x] `tests/conftest.py` exists with a `requires_docker` pytest marker
+- [x] `uv run pytest` runs and passes (even with no tests yet)
+- [x] Dependencies: `mcp` (FastMCP SDK), `pyyaml`
+- [x] Dev dependencies: `pytest`
 
 ## Testing
 
