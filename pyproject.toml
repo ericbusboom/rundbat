@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rundbat"
+version = "0.1.0"
+description = "Deployment Expert MCP Server for Docker-based environments"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]",
+    "pyyaml",
+]
+
+[project.scripts]
+rundbat = "rundbat.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/rundbat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "requires_docker: test requires Docker to be running",
+    "requires_dotconfig: test requires dotconfig to be installed",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]

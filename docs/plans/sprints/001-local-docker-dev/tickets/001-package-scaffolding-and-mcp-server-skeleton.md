@@ -1,10 +1,10 @@
 ---
-id: "001"
-title: "Package scaffolding and MCP server skeleton"
-status: todo
+id: '001'
+title: Package scaffolding and MCP server skeleton
+status: in-progress
 use-cases: []
 depends-on: []
-github-issue: ""
+github-issue: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
