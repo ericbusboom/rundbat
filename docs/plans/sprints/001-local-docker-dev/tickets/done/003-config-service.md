@@ -34,22 +34,22 @@ Also implements `init_project` and `set_secret` MCP tools, and the
 
 ## Acceptance Criteria
 
-- [ ] `src/rundbat/config.py` module with Config Service class/functions
-- [ ] `load_config(env)` — loads `rundbat.yaml` via dotconfig, returns parsed YAML
-- [ ] `save_config(env, data)` — writes `rundbat.yaml` via dotconfig
-- [ ] `save_secret(env, key, value)` — round-trips .env via dotconfig load/edit/save
-- [ ] `init_project(app_name, app_name_source)` MCP tool registered
+- [x] `src/rundbat/config.py` module with Config Service class/functions
+- [x] `load_config(env)` — loads `rundbat.yaml` via dotconfig, returns parsed YAML
+- [x] `save_config(env, data)` — writes `rundbat.yaml` via dotconfig
+- [x] `save_secret(env, key, value)` — round-trips .env via dotconfig load/edit/save
+- [x] `init_project(app_name, app_name_source)` MCP tool registered
   - Runs `dotconfig init` if not initialized
   - Saves initial `rundbat.yaml` with app_name, app_name_source, empty notes
   - Idempotent — calling again with same args does not error
-- [ ] `set_secret(env, key, value)` MCP tool registered
+- [x] `set_secret(env, key, value)` MCP tool registered
   - Loads .env, adds/updates key in secrets section, saves back
   - Preserves existing secrets and section markers
-- [ ] `check_config_drift` MCP tool registered
+- [x] `check_config_drift` MCP tool registered
   - Reads app_name_source file, compares to stored app_name
   - Returns warning with both values if mismatched
-- [ ] Subprocess errors return structured error objects (command, exit code, stderr)
-- [ ] Never calls shell=True in subprocess
+- [x] Subprocess errors return structured error objects (command, exit code, stderr)
+- [x] Never calls shell=True in subprocess
 
 ## Testing
 
