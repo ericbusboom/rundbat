@@ -2,10 +2,12 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from rundbat import discovery
+from rundbat import config, discovery
 
 server = FastMCP("rundbat")
 
+
+# --- Discovery tools ---
 
 @server.tool()
 def discover_system() -> dict:
@@ -17,6 +19,36 @@ def discover_system() -> dict:
 def verify_docker() -> dict:
     """Verify that Docker is installed and running. Returns ok: true/false."""
     return discovery.verify_docker()
+
+
+# --- Config tools ---
+
+@server.tool()
+def init_project(app_name: str, app_name_source: str) -> dict:
+    """Initialize rundbat config for a project. Creates rundbat.yaml via dotconfig with app name and source."""
+    try:
+        return config.init_project(app_name, app_name_source)
+    except config.ConfigError as e:
+        return e.to_dict()
+
+
+@server.tool()
+def set_secret(env: str, key: str, value: str) -> dict:
+    """Write a secret to a deployment's .env file via dotconfig load/edit/save cycle."""
+    try:
+        config.save_secret(env, key, value)
+        return {"status": "ok", "env": env, "key": key}
+    except config.ConfigError as e:
+        return e.to_dict()
+
+
+@server.tool()
+def check_config_drift(env: str = "dev") -> dict:
+    """Check if the app name at its source file differs from the stored name in rundbat config."""
+    try:
+        return config.check_config_drift(env)
+    except config.ConfigError as e:
+        return e.to_dict()
 
 
 def main():

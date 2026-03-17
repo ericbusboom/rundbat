@@ -1,14 +1,14 @@
 ---
-id: "003"
-title: "Config Service"
-status: todo
+id: '003'
+title: Config Service
+status: in-progress
 use-cases:
-  - SUC-002
-  - SUC-006
-  - SUC-007
+- SUC-002
+- SUC-006
+- SUC-007
 depends-on:
-  - "001"
-github-issue: ""
+- '001'
+github-issue: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
