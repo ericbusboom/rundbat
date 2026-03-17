@@ -2,7 +2,7 @@
 
 from mcp.server.fastmcp import FastMCP
 
-from rundbat import config, discovery
+from rundbat import config, database, discovery
 
 server = FastMCP("rundbat")
 
@@ -48,6 +48,45 @@ def check_config_drift(env: str = "dev") -> dict:
     try:
         return config.check_config_drift(env)
     except config.ConfigError as e:
+        return e.to_dict()
+
+
+# --- Database tools ---
+
+@server.tool()
+def start_database(env: str) -> dict:
+    """Start the Postgres container for a local environment. Creates it if missing."""
+    try:
+        name = database.container_name("unknown", env)  # Will be replaced by env service
+        status = database.get_container_status(name)
+        if status == "running":
+            return {"status": "already_running", "container": name}
+        if status == "exited":
+            database.start_container(name)
+            return {"status": "started", "container": name}
+        return {"error": f"Container {name} not found. Use create_environment first."}
+    except database.DatabaseError as e:
+        return e.to_dict()
+
+
+@server.tool()
+def stop_database(env: str) -> dict:
+    """Stop the Postgres container for a local environment."""
+    try:
+        name = database.container_name("unknown", env)  # Will be replaced by env service
+        database.stop_container(name)
+        return {"status": "stopped", "container": name}
+    except database.DatabaseError as e:
+        return e.to_dict()
+
+
+@server.tool()
+def health_check(env: str) -> dict:
+    """Check if the database is reachable for a local environment."""
+    try:
+        name = database.container_name("unknown", env)  # Will be replaced by env service
+        return database.health_check(name)
+    except database.DatabaseError as e:
         return e.to_dict()
 
 
