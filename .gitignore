@@ -35,8 +35,3 @@ Thumbs.db
 htmlcov/
 .tox/
 .nox/
-
-# SOPS
-config/**/secrets.env
-
-config/ # Ignore all files in the config directory
