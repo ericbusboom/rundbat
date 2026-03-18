@@ -137,6 +137,13 @@ def main():
     parser = argparse.ArgumentParser(
         prog="rundbat",
         description="Deployment Expert — manage Docker-based dev environments",
+        epilog="""\
+AI AGENTS: Run 'rundbat mcp' to start the MCP server, or
+'rundbat mcp --help' for full tool documentation.
+
+Human users: Run 'rundbat env list' to see configured environments,
+or 'rundbat env connstr <name>' to get a connection string.""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "--version", action="version", version=f"rundbat {__version__}",
