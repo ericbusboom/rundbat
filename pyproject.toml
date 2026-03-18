@@ -23,9 +23,12 @@ testpaths = ["tests"]
 markers = [
     "requires_docker: test requires Docker to be running",
     "requires_dotconfig: test requires dotconfig to be installed",
+    "requires_remote_docker: test requires the student-docker1 Docker context",
+    "requires_managed_db: test requires the managed DigitalOcean Postgres",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
+    "psycopg[binary]",
 ]

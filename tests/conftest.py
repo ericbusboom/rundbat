@@ -18,6 +18,19 @@ def _command_available(cmd: str) -> bool:
         return False
 
 
+def _docker_context_available(context: str) -> bool:
+    """Check if a Docker context is reachable."""
+    try:
+        result = subprocess.run(
+            ["docker", "--context", context, "info"],
+            capture_output=True,
+            timeout=15,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
 def pytest_runtest_setup(item):
     """Skip tests that require unavailable tools."""
     for marker in item.iter_markers("requires_docker"):
@@ -35,3 +48,11 @@ def pytest_runtest_setup(item):
     for marker in item.iter_markers("requires_dotconfig"):
         if not _command_available("dotconfig"):
             pytest.skip("dotconfig is not installed")
+
+    for marker in item.iter_markers("requires_remote_docker"):
+        if not _docker_context_available("student-docker1"):
+            pytest.skip("Remote Docker context 'student-docker1' is not reachable")
+
+    for marker in item.iter_markers("requires_managed_db"):
+        if not _command_available("dotconfig"):
+            pytest.skip("dotconfig is not installed (needed to load prod credentials)")
