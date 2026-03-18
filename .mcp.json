@@ -5,6 +5,12 @@
       "args": [
         "mcp"
       ]
+    },
+    "rundbat": {
+      "command": "rundbat",
+      "args": [
+        "mcp"
+      ]
     }
   }
 }
