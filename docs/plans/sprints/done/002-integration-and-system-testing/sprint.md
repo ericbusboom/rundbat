@@ -1,14 +1,14 @@
 ---
-id: "002"
-title: "Integration and System Testing"
+id: '002'
+title: Integration and System Testing
 status: done
 branch: sprint/002-integration-and-system-testing
 use-cases:
-  - SUC-001
-  - SUC-002
-  - SUC-003
-  - SUC-004
-  - SUC-005
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
