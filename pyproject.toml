@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rundbat = "rundbat.server:main"
+rundbat = "rundbat.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rundbat"]

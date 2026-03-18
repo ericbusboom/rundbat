@@ -45,7 +45,7 @@ def install_mcp_config(project_dir: Path) -> dict:
 
     data["mcpServers"]["rundbat"] = {
         "command": "rundbat",
-        "args": [],
+        "args": ["mcp"],
     }
 
     mcp_path.write_text(json.dumps(data, indent=2) + "\n")
