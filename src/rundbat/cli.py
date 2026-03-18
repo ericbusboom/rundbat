@@ -155,6 +155,10 @@ def cmd_init(args):
     else:
         print("done.")
 
+    print(f"  Installing CLAUDE.md section...", end=" ")
+    claude_result = installer.install_claude_md(project_dir)
+    print(f"{claude_result['action']}.")
+
     # Summary
     print(f"\nrundbat is ready!")
     print(f"  App name:  {app_name}")
@@ -163,6 +167,7 @@ def cmd_init(args):
     print(f"  .mcp.json                  MCP server registration")
     print(f"  .claude/rules/rundbat.md   Agent guidance rules")
     print(f"  .claude/settings.json      Agent prompt hooks")
+    print(f"  CLAUDE.md                  Agent instructions (guarded section)")
     print(f"\nNext steps:")
     print(f"  - An AI agent can now call rundbat MCP tools")
     print(f"  - Run 'rundbat env list' to see environments")

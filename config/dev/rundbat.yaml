@@ -1,0 +1,3 @@
+app_name: rundbat
+app_name_source: pyproject.toml project.name
+notes: []

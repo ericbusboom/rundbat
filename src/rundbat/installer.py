@@ -104,6 +104,80 @@ def install_hooks(project_dir: Path) -> dict:
     }
 
 
+RUNDBAT_CLAUDE_MD_START = "<!-- RUNDBAT:START -->"
+RUNDBAT_CLAUDE_MD_END = "<!-- RUNDBAT:END -->"
+
+RUNDBAT_CLAUDE_MD = """\
+<!-- RUNDBAT:START -->
+## rundbat — Deployment Expert
+
+This project uses **rundbat** to manage Docker-based deployment
+environments. rundbat is an MCP server that handles database provisioning,
+secret management, and environment configuration.
+
+**If you need a database, connection string, deployment environment, or
+anything involving Docker containers or dotconfig — use the rundbat MCP
+tools.** Do not run Docker or dotconfig commands directly.
+
+Run `rundbat mcp --help` for the full tool reference, or call
+`discover_system` to see what is available.
+
+### Quick Reference
+
+| Tool | Purpose |
+|---|---|
+| `discover_system` | Detect OS, Docker, dotconfig, Node.js |
+| `init_project` | Initialize rundbat in a project |
+| `create_environment` | Provision a database environment |
+| `get_environment_config` | Get connection string (auto-restarts containers) |
+| `set_secret` | Store encrypted secrets via dotconfig |
+| `start_database` / `stop_database` | Container lifecycle |
+| `health_check` | Verify database connectivity |
+| `validate_environment` | Full environment validation |
+| `check_config_drift` | Detect app name changes |
+
+### Configuration
+
+Configuration is managed by dotconfig. Run `dotconfig agent` for full
+documentation on how dotconfig works. Key locations:
+
+- `config/{env}/rundbat.yaml` — Per-environment rundbat config
+- `config/{env}/secrets.env` — SOPS-encrypted credentials
+- `config/keys/` — SSH keys (encrypted via dotconfig key management)
+<!-- RUNDBAT:END -->"""
+
+
+def install_claude_md(project_dir: Path) -> dict:
+    """Insert or replace the RUNDBAT guarded section in CLAUDE.md."""
+    claude_md_path = project_dir / "CLAUDE.md"
+
+    if claude_md_path.exists():
+        content = claude_md_path.read_text()
+    else:
+        content = ""
+
+    # Check if guarded section exists
+    start_idx = content.find(RUNDBAT_CLAUDE_MD_START)
+    end_idx = content.find(RUNDBAT_CLAUDE_MD_END)
+
+    if start_idx != -1 and end_idx != -1:
+        # Replace existing section
+        end_idx += len(RUNDBAT_CLAUDE_MD_END)
+        new_content = content[:start_idx] + RUNDBAT_CLAUDE_MD + content[end_idx:]
+        action = "replaced"
+    else:
+        # Append to end
+        if content and not content.endswith("\n"):
+            content += "\n"
+        if content:
+            content += "\n"
+        new_content = content + RUNDBAT_CLAUDE_MD + "\n"
+        action = "appended"
+
+    claude_md_path.write_text(new_content)
+    return {"file": str(claude_md_path), "action": action}
+
+
 def install_all(project_dir: Path) -> dict:
     """Install all rundbat integration files into the target project."""
     project_dir = Path(project_dir)
@@ -111,4 +185,5 @@ def install_all(project_dir: Path) -> dict:
         "mcp_config": install_mcp_config(project_dir),
         "rules": install_rules(project_dir),
         "hooks": install_hooks(project_dir),
+        "claude_md": install_claude_md(project_dir),
     }
