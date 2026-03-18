@@ -1,7 +1,7 @@
 ---
 id: "002"
 title: "Integration and System Testing"
-status: planning
+status: done
 branch: sprint/002-integration-and-system-testing
 use-cases:
   - SUC-001
