@@ -64,6 +64,111 @@ USAGE
 """
 
 
+def _detect_app_name() -> tuple[str, str] | None:
+    """Try to detect the app name from common project files."""
+    cwd = Path.cwd()
+
+    # Try package.json
+    pkg_json = cwd / "package.json"
+    if pkg_json.exists():
+        try:
+            data = json.loads(pkg_json.read_text())
+            name = data.get("name")
+            if name:
+                return (name, "package.json name")
+        except (json.JSONDecodeError, KeyError):
+            pass
+
+    # Try pyproject.toml
+    pyproject = cwd / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            import tomllib
+            data = tomllib.loads(pyproject.read_text())
+            name = data.get("project", {}).get("name")
+            if name:
+                return (name, "pyproject.toml project.name")
+        except (ImportError, KeyError):
+            pass
+
+    # Fallback: use directory name
+    return (cwd.name, f"directory name ({cwd.name})")
+
+
+def cmd_init(args):
+    """Initialize rundbat in the current project."""
+    from rundbat import config, installer
+    from rundbat.config import ConfigError
+
+    project_dir = Path.cwd()
+    print(f"Initializing rundbat in {project_dir}\n")
+
+    # Step 1: Detect or use provided app name
+    if args.app_name:
+        app_name = args.app_name
+        app_name_source = "command line"
+    else:
+        detected = _detect_app_name()
+        app_name, app_name_source = detected
+        print(f"  Detected app name: {app_name} (from {app_name_source})")
+
+    # Step 2: Initialize dotconfig if needed
+    print(f"  Checking dotconfig...", end=" ")
+    if config.is_initialized():
+        print("already initialized.")
+    else:
+        try:
+            config.init_dotconfig()
+            print("initialized.")
+        except ConfigError as e:
+            print(f"failed!\n    {e}")
+            print("\n  Install dotconfig first: pipx install dotconfig")
+            sys.exit(1)
+
+    # Step 3: Save rundbat.yaml
+    print(f"  Saving rundbat config...", end=" ")
+    try:
+        data = {
+            "app_name": app_name,
+            "app_name_source": app_name_source,
+            "notes": [],
+        }
+        config.save_config("dev", data)
+        print("done.")
+    except ConfigError as e:
+        print(f"failed!\n    {e}")
+        sys.exit(1)
+
+    # Step 4: Install MCP server, rules, and hooks
+    print(f"  Installing MCP server config...", end=" ")
+    result = installer.install_mcp_config(project_dir)
+    print("done.")
+
+    print(f"  Installing agent rules...", end=" ")
+    installer.install_rules(project_dir)
+    print("done.")
+
+    print(f"  Installing agent hooks...", end=" ")
+    hook_result = installer.install_hooks(project_dir)
+    if hook_result["action"] == "already_present":
+        print("already present.")
+    else:
+        print("done.")
+
+    # Summary
+    print(f"\nrundbat is ready!")
+    print(f"  App name:  {app_name}")
+    print(f"  Source:    {app_name_source}")
+    print(f"\nInstalled files:")
+    print(f"  .mcp.json                  MCP server registration")
+    print(f"  .claude/rules/rundbat.md   Agent guidance rules")
+    print(f"  .claude/settings.json      Agent prompt hooks")
+    print(f"\nNext steps:")
+    print(f"  - An AI agent can now call rundbat MCP tools")
+    print(f"  - Run 'rundbat env list' to see environments")
+    print(f"  - The agent can call create_environment to set up a database")
+
+
 def cmd_mcp(args):
     """Run the MCP server."""
     from rundbat.server import server
@@ -138,6 +243,9 @@ def main():
         prog="rundbat",
         description="Deployment Expert — manage Docker-based dev environments",
         epilog="""\
+Getting started:
+  rundbat init               Set up rundbat in your project (run this first)
+
 AI AGENTS: Run 'rundbat mcp' to start the MCP server, or
 'rundbat mcp --help' for full tool documentation.
 
@@ -149,6 +257,18 @@ or 'rundbat env connstr <name>' to get a connection string.""",
         "--version", action="version", version=f"rundbat {__version__}",
     )
     subparsers = parser.add_subparsers(dest="command")
+
+    # rundbat init
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Set up rundbat in the current project",
+        description="Initialize rundbat: detect app name, set up dotconfig, install MCP server config, agent rules, and hooks.",
+    )
+    init_parser.add_argument(
+        "--app-name",
+        help="Application name (auto-detected from package.json or pyproject.toml if not provided)",
+    )
+    init_parser.set_defaults(func=cmd_init)
 
     # rundbat mcp
     mcp_parser = subparsers.add_parser(
