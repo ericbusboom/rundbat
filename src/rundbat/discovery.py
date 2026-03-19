@@ -140,15 +140,16 @@ def detect_node() -> dict:
 def detect_existing_config() -> dict:
     """Check for existing rundbat configuration in the project."""
     config_dir = Path("config")
+    has_project_config = (config_dir / "rundbat.yaml").exists()
     found = []
     if config_dir.exists():
+        skip_dirs = {"local", ".git", "keys"}
         for env_dir in config_dir.iterdir():
-            if env_dir.is_dir() and env_dir.name != "local":
-                rundbat_yaml = env_dir / "rundbat.yaml"
-                if rundbat_yaml.exists():
+            if env_dir.is_dir() and env_dir.name not in skip_dirs:
+                if (env_dir / "public.env").exists() or (env_dir / "secrets.env").exists():
                     found.append(str(env_dir.name))
     return {
-        "has_config": len(found) > 0,
+        "has_config": has_project_config,
         "environments": found,
     }
 

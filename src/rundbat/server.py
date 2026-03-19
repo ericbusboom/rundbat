@@ -11,21 +11,20 @@ server = FastMCP("rundbat")
 
 def _get_container_name(env: str) -> str:
     """Look up the container name for an environment from config."""
+    # Check per-env public.env first
+    env_vars = config.load_public_env(env)
+    container = env_vars.get("DB_CONTAINER")
+    if container:
+        return container
+    # Fallback: derive from project config templates
     try:
-        env_config = config.load_config(env)
-        db_config = env_config.get("database", {})
-        container = db_config.get("container")
-        if container:
-            return container
-    except ConfigError:
-        pass
-    # Fallback: try dev config for app name
-    try:
-        dev_config = config.load_config("dev")
-        app_name = dev_config.get("app_name", "unknown")
+        project_config = config.load_config()
+        app_name = project_config.get("app_name", "unknown")
+        template = project_config.get("container_template")
     except ConfigError:
         app_name = "unknown"
-    return database.container_name(app_name, env)
+        template = None
+    return database.container_name(app_name, env, template)
 
 
 # --- Discovery tools ---

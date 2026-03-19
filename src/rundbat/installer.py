@@ -152,7 +152,7 @@ Run `rundbat mcp --help` for the full tool reference, or call
 Configuration is managed by dotconfig. Run `dotconfig agent` for full
 documentation on how dotconfig works. Key locations:
 
-- `config/{env}/rundbat.yaml` — Per-environment rundbat config
+- `config/rundbat.yaml` — Project-wide rundbat config (app name, naming templates)
 - `config/{env}/secrets.env` — SOPS-encrypted credentials
 - `config/keys/` — SSH keys (encrypted via dotconfig key management)
 <!-- RUNDBAT:END -->"""

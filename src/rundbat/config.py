@@ -76,27 +76,56 @@ def init_dotconfig() -> str:
     return _run_dotconfig(["init"])
 
 
-def load_config(env: str) -> dict:
-    """Load rundbat.yaml for a deployment via dotconfig."""
-    stdout = _run_dotconfig(["load", "-d", env, "--file", "rundbat.yaml", "--stdout"])
-    return yaml.safe_load(stdout) or {}
+def _config_path() -> Path:
+    """Return the path to config/rundbat.yaml."""
+    return Path("config") / "rundbat.yaml"
 
 
-def save_config(env: str, data: dict) -> None:
-    """Save rundbat.yaml for a deployment via dotconfig."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", prefix="rundbat-", delete=False
-    ) as f:
-        yaml.dump(data, f, default_flow_style=False)
-        tmp_path = f.name
+def load_config(env: str | None = None) -> dict:
+    """Load config/rundbat.yaml. The env parameter is ignored (kept for compat)."""
+    path = _config_path()
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
+    return yaml.safe_load(path.read_text()) or {}
 
-    try:
-        # Copy temp file to rundbat.yaml, then save via dotconfig
-        Path("rundbat.yaml").write_text(Path(tmp_path).read_text())
-        _run_dotconfig(["save", "-d", env, "--file", "rundbat.yaml"])
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)
-        Path("rundbat.yaml").unlink(missing_ok=True)
+
+def save_config(env: str | None = None, data: dict = None) -> None:
+    """Save config/rundbat.yaml. The env parameter is ignored (kept for compat)."""
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.dump(data, default_flow_style=False))
+
+
+def save_public_env(env: str, data: dict) -> None:
+    """Write key=value pairs to a deployment's public.env, merging with existing."""
+    public_path = Path("config") / env / "public.env"
+    public_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing = {}
+    if public_path.exists():
+        for line in public_path.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                existing[k] = v
+
+    existing.update(data)
+    lines = [f"{k}={v}" for k, v in sorted(existing.items())]
+    public_path.write_text("\n".join(lines) + "\n")
+
+
+def load_public_env(env: str) -> dict:
+    """Read a deployment's public.env as a dict."""
+    public_path = Path("config") / env / "public.env"
+    if not public_path.exists():
+        return {}
+    result = {}
+    for line in public_path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            result[k] = v
+    return result
 
 
 def load_env(env: str) -> str:
@@ -187,7 +216,7 @@ def init_project(app_name: str, app_name_source: str) -> dict:
         "notes": [],
     }
 
-    save_config("dev", data)
+    save_config(data=data)
 
     return {
         "app_name": app_name,
@@ -198,7 +227,7 @@ def init_project(app_name: str, app_name_source: str) -> dict:
 
 def check_config_drift(env: str = "dev") -> dict:
     """Check if the app name at its source differs from the stored name."""
-    config = load_config(env)
+    config = load_config()
     app_name = config.get("app_name")
     source = config.get("app_name_source")
 

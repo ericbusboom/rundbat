@@ -41,8 +41,8 @@ HOW IT WORKS
   All configuration is stored via dotconfig (encrypted secrets, layered
   .env files). Database containers follow the naming convention:
 
-    Container: {app_name}-{env}-pg
-    Database:  {app_name}_{env}
+    Container: {app}-{env}-pg       (configurable via container_template)
+    Database:  {app}_{env}          (configurable via database_template)
 
   The most common interaction is get_environment_config — call it at the
   start of a session and you get back a working connection string. If the
@@ -53,7 +53,7 @@ CONFIGURATION
 
   rundbat stores state in rundbat.yaml files managed by dotconfig:
 
-    config/{env}/rundbat.yaml    Per-environment config
+    config/rundbat.yaml          Project-wide rundbat config (app name, templates)
     config/{env}/secrets.env     SOPS-encrypted credentials
     config/{env}/public.env      Non-secret environment variables
 
@@ -125,15 +125,17 @@ def cmd_init(args):
             print("\n  Install dotconfig first: pipx install dotconfig")
             sys.exit(1)
 
-    # Step 3: Save rundbat.yaml
+    # Step 3: Save config/rundbat.yaml
     print(f"  Saving rundbat config...", end=" ")
     try:
         data = {
             "app_name": app_name,
             "app_name_source": app_name_source,
+            "container_template": "{app}-{env}-pg",
+            "database_template": "{app}_{env}",
             "notes": [],
         }
-        config.save_config("dev", data)
+        config.save_config(data=data)
         print("done.")
     except ConfigError as e:
         print(f"failed!\n    {e}")
@@ -188,11 +190,11 @@ def cmd_env_list(args):
         sys.exit(1)
 
     envs = []
+    skip_dirs = {"local", ".git", "keys"}
     for entry in sorted(config_dir.iterdir()):
-        if entry.is_dir() and entry.name not in ("local", ".git"):
-            rundbat_yaml = entry / "rundbat.yaml"
-            has_config = rundbat_yaml.exists()
-            envs.append((entry.name, has_config))
+        if entry.is_dir() and entry.name not in skip_dirs:
+            has_env = (entry / "public.env").exists() or (entry / "secrets.env").exists()
+            envs.append((entry.name, has_env))
 
     if not envs:
         print("No environments found in config/.")

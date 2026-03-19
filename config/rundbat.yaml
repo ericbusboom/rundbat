@@ -1,0 +1,5 @@
+app_name: rundbat
+app_name_source: pyproject.toml project.name
+container_template: "{app}-{env}-pg"
+database_template: "{app}_{env}"
+notes: []

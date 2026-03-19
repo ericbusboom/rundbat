@@ -29,12 +29,12 @@ class TestCreateEnvironment:
         with patch("rundbat.environment.config.load_config") as mock_load, \
              patch("rundbat.environment.database.find_available_port", return_value=5432), \
              patch("rundbat.environment.database.create_database") as mock_create, \
-             patch("rundbat.environment.config.save_config"), \
+             patch("rundbat.environment.config.save_public_env"), \
              patch("rundbat.environment.config.save_secret"):
             mock_load.return_value = {"app_name": "my-app", "app_name_source": "package.json name"}
             mock_create.return_value = {
-                "container": "rundbat-my-app-dev-pg",
-                "database": "rundbat_my-app_dev",
+                "container": "my-app-dev-pg",
+                "database": "my-app_dev",
                 "port": 5432,
                 "user": "my-app",
                 "status": "running",
@@ -56,24 +56,26 @@ class TestGetEnvironmentConfig:
             assert "error" in result
 
     def test_not_configured(self):
-        with patch("rundbat.environment.config.load_config", return_value={"app_name": "app"}):
+        with patch("rundbat.environment.config.load_config", return_value={"app_name": "app"}), \
+             patch("rundbat.environment.config.load_public_env", return_value={}):
             result = get_environment_config("dev")
             assert "error" in result
             assert "not configured" in result["error"]
 
     def test_successful_retrieval_running(self):
         with patch("rundbat.environment.config.load_config") as mock_load, \
+             patch("rundbat.environment.config.load_public_env") as mock_pub, \
              patch("rundbat.environment.config.load_env", return_value="DATABASE_URL=postgresql://..."), \
              patch("rundbat.environment.database.ensure_running") as mock_ensure, \
              patch("rundbat.environment.config.check_config_drift", return_value={"drift": False}):
             mock_load.return_value = {
                 "app_name": "my-app",
                 "app_name_source": "package.json name",
-                "database": {
-                    "container": "rundbat-my-app-dev-pg",
-                    "port": 5432,
-                },
                 "notes": ["test note"],
+            }
+            mock_pub.return_value = {
+                "DB_CONTAINER": "my-app-dev-pg",
+                "DB_PORT": "5432",
             }
             mock_ensure.return_value = {
                 "status": "running",
@@ -89,14 +91,12 @@ class TestGetEnvironmentConfig:
 
     def test_includes_drift_warning(self):
         with patch("rundbat.environment.config.load_config") as mock_load, \
+             patch("rundbat.environment.config.load_public_env") as mock_pub, \
              patch("rundbat.environment.config.load_env", return_value="DATABASE_URL=postgresql://..."), \
              patch("rundbat.environment.database.ensure_running") as mock_ensure, \
              patch("rundbat.environment.config.check_config_drift") as mock_drift:
-            mock_load.return_value = {
-                "app_name": "my-app",
-                "database": {"container": "c", "port": 5432},
-                "notes": [],
-            }
+            mock_load.return_value = {"app_name": "my-app", "notes": []}
+            mock_pub.return_value = {"DB_CONTAINER": "c", "DB_PORT": "5432"}
             mock_ensure.return_value = {"status": "running", "action": "none", "warnings": []}
             mock_drift.return_value = {
                 "drift": True,
@@ -108,14 +108,12 @@ class TestGetEnvironmentConfig:
 
     def test_includes_recreate_warning(self):
         with patch("rundbat.environment.config.load_config") as mock_load, \
+             patch("rundbat.environment.config.load_public_env") as mock_pub, \
              patch("rundbat.environment.config.load_env", return_value="DATABASE_URL=postgresql://u:p@h:5/d"), \
              patch("rundbat.environment.database.ensure_running") as mock_ensure, \
              patch("rundbat.environment.config.check_config_drift", return_value={"drift": False}):
-            mock_load.return_value = {
-                "app_name": "my-app",
-                "database": {"container": "c", "port": 5432},
-                "notes": [],
-            }
+            mock_load.return_value = {"app_name": "my-app", "notes": []}
+            mock_pub.return_value = {"DB_CONTAINER": "c", "DB_PORT": "5432"}
             mock_ensure.return_value = {
                 "status": "running",
                 "action": "recreated",
@@ -131,13 +129,12 @@ class TestValidateEnvironment:
 
     def test_all_checks_pass(self):
         with patch("rundbat.environment.config.load_config") as mock_load, \
+             patch("rundbat.environment.config.load_public_env") as mock_pub, \
              patch("rundbat.environment.config.load_env", return_value="DATABASE_URL=pg://..."), \
              patch("rundbat.environment.database.get_container_status", return_value="running"), \
              patch("rundbat.environment.database.health_check", return_value={"ok": True}):
-            mock_load.return_value = {
-                "app_name": "app",
-                "database": {"container": "c"},
-            }
+            mock_load.return_value = {"app_name": "app"}
+            mock_pub.return_value = {"DB_CONTAINER": "c"}
 
             result = validate_environment("dev")
             assert result["ok"] is True
@@ -145,6 +142,7 @@ class TestValidateEnvironment:
 
     def test_config_missing(self):
         with patch("rundbat.environment.config.load_config", side_effect=ConfigError("nope")), \
+             patch("rundbat.environment.config.load_public_env", return_value={}), \
              patch("rundbat.environment.config.load_env", side_effect=ConfigError("nope")):
             result = validate_environment("dev")
             assert result["ok"] is False
@@ -152,12 +150,11 @@ class TestValidateEnvironment:
 
     def test_container_not_running(self):
         with patch("rundbat.environment.config.load_config") as mock_load, \
+             patch("rundbat.environment.config.load_public_env") as mock_pub, \
              patch("rundbat.environment.config.load_env", return_value="DATABASE_URL=pg://..."), \
              patch("rundbat.environment.database.get_container_status", return_value="exited"):
-            mock_load.return_value = {
-                "app_name": "app",
-                "database": {"container": "c"},
-            }
+            mock_load.return_value = {"app_name": "app"}
+            mock_pub.return_value = {"DB_CONTAINER": "c"}
 
             result = validate_environment("dev")
             assert result["ok"] is False

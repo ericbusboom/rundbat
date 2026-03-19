@@ -21,25 +21,23 @@ def create_environment(name: str, env_type: str = "local-docker") -> dict:
     if env_type != "local-docker":
         return {"error": f"Environment type '{env_type}' is not yet supported. Only 'local-docker' is available."}
 
-    # Load project config to get app name
+    # Load project config to get app name and templates
     try:
-        project_config = config.load_config("dev")
+        project_config = config.load_config()
     except ConfigError:
-        # Try to load from the target env
-        try:
-            project_config = config.load_config(name)
-        except ConfigError:
-            return {"error": "Project not initialized. Call init_project first."}
+        return {"error": "Project not initialized. Call init_project first."}
 
     app_name = project_config.get("app_name")
     if not app_name:
-        return {"error": "No app_name in rundbat.yaml. Call init_project first."}
+        return {"error": "No app_name in config/rundbat.yaml. Call init_project first."}
 
     # Generate credentials
     password = _generate_password()
     port = database.find_available_port()
-    db_name = database.database_name(app_name, name)
-    container = database.container_name(app_name, name)
+    container_tmpl = project_config.get("container_template")
+    database_tmpl = project_config.get("database_template")
+    db_name = database.database_name(app_name, name, database_tmpl)
+    container = database.container_name(app_name, name, container_tmpl)
 
     # Create the database container
     try:
@@ -57,17 +55,15 @@ def create_environment(name: str, env_type: str = "local-docker") -> dict:
         f"postgresql://{app_name}:{password}@localhost:{port}/{db_name}"
     )
 
-    # Save database config to rundbat.yaml
-    env_config = dict(project_config)
-    env_config["database"] = {
-        "name": db_name,
-        "container": container,
-        "port": port,
-        "engine": "postgres",
-        "version": "16",
-    }
+    # Save database details to the environment's public.env
     try:
-        config.save_config(name, env_config)
+        config.save_public_env(name, {
+            "DB_CONTAINER": container,
+            "DB_NAME": db_name,
+            "DB_PORT": str(port),
+            "DB_ENGINE": "postgres",
+            "DB_VERSION": "16",
+        })
     except ConfigError as e:
         return e.to_dict()
 
@@ -94,21 +90,23 @@ def get_environment_config(env: str) -> dict:
 
     This is the primary day-to-day tool. Single call, complete answer.
     """
-    # Load config
+    # Load project config and per-env public.env
     try:
-        env_config = config.load_config(env)
+        project_config = config.load_config()
     except ConfigError as e:
         return e.to_dict()
 
-    app_name = env_config.get("app_name")
-    db_config = env_config.get("database", {})
-    notes = env_config.get("notes", [])
+    app_name = project_config.get("app_name")
+    env_vars = config.load_public_env(env)
+    notes = project_config.get("notes", [])
 
-    if not app_name or not db_config:
+    container = env_vars.get("DB_CONTAINER")
+    port_str = env_vars.get("DB_PORT")
+
+    if not app_name or not container:
         return {"error": f"Environment '{env}' is not configured. Call create_environment first."}
 
-    container = db_config.get("container")
-    port = db_config.get("port", 5432)
+    port = int(port_str) if port_str else 5432
 
     # Load the password from secrets
     connection_string = None
@@ -183,11 +181,12 @@ def validate_environment(env: str) -> dict:
 
     # Check config
     try:
-        env_config = config.load_config(env)
-        if env_config.get("app_name") and env_config.get("database"):
+        project_config = config.load_config()
+        env_vars = config.load_public_env(env)
+        if project_config.get("app_name") and env_vars.get("DB_CONTAINER"):
             checks["config"] = {"ok": True, "detail": "Config loaded successfully"}
         else:
-            checks["config"] = {"ok": False, "detail": "Missing app_name or database in config"}
+            checks["config"] = {"ok": False, "detail": "Missing app_name or DB_CONTAINER in config"}
     except ConfigError as e:
         checks["config"] = {"ok": False, "detail": str(e)}
 
@@ -204,7 +203,7 @@ def validate_environment(env: str) -> dict:
 
     # Check container
     if checks["config"]["ok"]:
-        container = env_config["database"].get("container")
+        container = env_vars.get("DB_CONTAINER")
         if container:
             status = database.get_container_status(container)
             checks["container"] = {
@@ -216,8 +215,7 @@ def validate_environment(env: str) -> dict:
 
     # Check connectivity
     if checks["container"]["ok"]:
-        container = env_config["database"]["container"]
-        health = database.health_check(container)
+        health = database.health_check(env_vars["DB_CONTAINER"])
         checks["connectivity"] = {
             "ok": health["ok"],
             "detail": "pg_isready succeeded" if health["ok"] else health.get("error", "Health check failed"),
