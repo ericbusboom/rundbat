@@ -59,14 +59,28 @@ def _run_docker(args: list[str], timeout: int = 60) -> str:
     return result.stdout.strip()
 
 
-def container_name(app_name: str, env: str) -> str:
-    """Generate the container name for a database."""
-    return f"rundbat-{app_name}-{env}-pg"
+DEFAULT_CONTAINER_TEMPLATE = "{app}-{env}-pg"
+DEFAULT_DATABASE_TEMPLATE = "{app}_{env}"
 
 
-def database_name(app_name: str, env: str) -> str:
-    """Generate the database name."""
-    return f"rundbat_{app_name}_{env}"
+def container_name(app_name: str, env: str, template: str | None = None) -> str:
+    """Generate the container name for a database.
+
+    Template placeholders: {app}, {env}
+    Default: "{app}-{env}-pg"
+    """
+    tmpl = template or DEFAULT_CONTAINER_TEMPLATE
+    return tmpl.format(app=app_name, env=env)
+
+
+def database_name(app_name: str, env: str, template: str | None = None) -> str:
+    """Generate the database name.
+
+    Template placeholders: {app}, {env}
+    Default: "{app}_{env}"
+    """
+    tmpl = template or DEFAULT_DATABASE_TEMPLATE
+    return tmpl.format(app=app_name, env=env)
 
 
 def _is_port_available(port: int) -> bool:

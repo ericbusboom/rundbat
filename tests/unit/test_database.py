@@ -19,16 +19,22 @@ class TestNamingConventions:
     """Tests for container and database naming."""
 
     def test_container_name(self):
-        assert container_name("my-app", "dev") == "rundbat-my-app-dev-pg"
+        assert container_name("my-app", "dev") == "my-app-dev-pg"
 
     def test_container_name_staging(self):
-        assert container_name("league-enrollment", "staging") == "rundbat-league-enrollment-staging-pg"
+        assert container_name("league-enrollment", "staging") == "league-enrollment-staging-pg"
+
+    def test_container_name_custom_template(self):
+        assert container_name("my-app", "dev", "{app}-{env}-postgres") == "my-app-dev-postgres"
 
     def test_database_name(self):
-        assert database_name("my-app", "dev") == "rundbat_my-app_dev"
+        assert database_name("my-app", "dev") == "my-app_dev"
 
     def test_database_name_prod(self):
-        assert database_name("league-enrollment", "prod") == "rundbat_league-enrollment_prod"
+        assert database_name("league-enrollment", "prod") == "league-enrollment_prod"
+
+    def test_database_name_custom_template(self):
+        assert database_name("my-app", "dev", "db_{app}_{env}") == "db_my-app_dev"
 
 
 class TestPortAllocation:

@@ -41,8 +41,8 @@ HOW IT WORKS
   All configuration is stored via dotconfig (encrypted secrets, layered
   .env files). Database containers follow the naming convention:
 
-    Container: rundbat-{app_name}-{env}-pg
-    Database:  rundbat_{app_name}_{env}
+    Container: {app_name}-{env}-pg
+    Database:  {app_name}_{env}
 
   The most common interaction is get_environment_config — call it at the
   start of a session and you get back a working connection string. If the
@@ -230,7 +230,7 @@ def cmd_env_connstr(args):
         app_name = env_config.get("app_name")
         if db and app_name:
             port = db.get("port", 5432)
-            db_name = db.get("name", f"rundbat_{app_name}_{env}")
+            db_name = db.get("name", f"{app_name}_{env}")
             print(f"postgresql://{app_name}:****@localhost:{port}/{db_name}")
             print(f"  (password masked — load from dotconfig secrets)", file=sys.stderr)
             return
