@@ -122,10 +122,12 @@ def create_database(
     password: str,
     port: int,
     pg_version: str = "16",
+    container_template: str | None = None,
+    database_template: str | None = None,
 ) -> dict:
     """Create and start a new Postgres container."""
-    name = container_name(app_name, env)
-    db_name = database_name(app_name, env)
+    name = container_name(app_name, env, container_template)
+    db_name = database_name(app_name, env, database_template)
 
     _run_docker([
         "run", "-d",
@@ -197,12 +199,14 @@ def ensure_running(
     password: str,
     port: int,
     pg_version: str = "16",
+    container_template: str | None = None,
+    database_template: str | None = None,
 ) -> dict:
     """Ensure the database container is running. Restart or recreate as needed.
 
     Returns status dict with warnings if applicable.
     """
-    name = container_name(app_name, env)
+    name = container_name(app_name, env, container_template)
     status = get_container_status(name)
 
     if status == "running":
@@ -233,7 +237,7 @@ def ensure_running(
         except DatabaseError:
             pass
 
-    create_database(app_name, env, password, port, pg_version)
+    create_database(app_name, env, password, port, pg_version, container_template, database_template)
     return {
         "container": name,
         "status": "running",
