@@ -75,9 +75,10 @@ class TestInstallHooks:
         settings_path = tmp_path / ".claude" / "settings.json"
         assert settings_path.exists()
         data = json.loads(settings_path.read_text())
-        hooks = data["hooks"]["UserPromptSubmit"]
-        assert len(hooks) == 1
-        assert hooks[0]["command"] == RUNDBAT_HOOK_COMMAND
+        entries = data["hooks"]["UserPromptSubmit"]
+        assert len(entries) == 1
+        assert entries[0]["matcher"] == ""
+        assert entries[0]["hooks"][0]["command"] == RUNDBAT_HOOK_COMMAND
 
     def test_preserves_existing_hooks(self, tmp_path):
         claude_dir = tmp_path / ".claude"
@@ -86,7 +87,12 @@ class TestInstallHooks:
         existing = {
             "hooks": {
                 "UserPromptSubmit": [
-                    {"type": "command", "command": "echo 'CLASI: hello'"}
+                    {
+                        "matcher": "",
+                        "hooks": [
+                            {"type": "command", "command": "echo 'CLASI: hello'"}
+                        ],
+                    }
                 ]
             }
         }
@@ -94,21 +100,24 @@ class TestInstallHooks:
 
         install_hooks(tmp_path)
         data = json.loads(settings_path.read_text())
-        hooks = data["hooks"]["UserPromptSubmit"]
-        assert len(hooks) == 2
-        commands = [h["command"] for h in hooks]
-        assert "echo 'CLASI: hello'" in commands
-        assert RUNDBAT_HOOK_COMMAND in commands
+        entries = data["hooks"]["UserPromptSubmit"]
+        assert len(entries) == 2
+        all_commands = [
+            h["command"]
+            for entry in entries
+            for h in entry.get("hooks", [])
+        ]
+        assert "echo 'CLASI: hello'" in all_commands
+        assert RUNDBAT_HOOK_COMMAND in all_commands
 
     def test_idempotent(self, tmp_path):
         install_hooks(tmp_path)
         install_hooks(tmp_path)
         settings_path = tmp_path / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
-        hooks = data["hooks"]["UserPromptSubmit"]
+        entries = data["hooks"]["UserPromptSubmit"]
         # Should not duplicate
-        rundbat_hooks = [h for h in hooks if h.get("command") == RUNDBAT_HOOK_COMMAND]
-        assert len(rundbat_hooks) == 1
+        assert len(entries) == 1
 
 
 class TestInstallAll:

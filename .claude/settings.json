@@ -2,8 +2,13 @@
   "hooks": {
     "UserPromptSubmit": [
       {
-        "type": "command",
-        "command": "echo 'rundbat: If this task involves databases, deployment, or environment setup, use the rundbat MCP server.'"
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'rundbat: If this task involves databases, deployment, or environment setup, use the rundbat MCP server.'"
+          }
+        ]
       }
     ]
   }

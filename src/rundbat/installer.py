@@ -65,7 +65,11 @@ def install_rules(project_dir: Path) -> dict:
 
 
 def install_hooks(project_dir: Path) -> dict:
-    """Merge UserPromptSubmit hook into .claude/settings.json."""
+    """Merge UserPromptSubmit hook into .claude/settings.json.
+
+    Uses the matcher + hooks array format:
+    {"UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "..."}]}]}
+    """
     claude_dir = project_dir / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
 
@@ -82,18 +86,25 @@ def install_hooks(project_dir: Path) -> dict:
     if "UserPromptSubmit" not in data["hooks"]:
         data["hooks"]["UserPromptSubmit"] = []
 
-    # Check if our hook already exists (idempotent)
-    hooks = data["hooks"]["UserPromptSubmit"]
-    already_exists = any(
-        h.get("command") == RUNDBAT_HOOK_COMMAND
-        for h in hooks
-        if isinstance(h, dict)
-    )
+    # Check if our hook already exists in any matcher group (idempotent)
+    entries = data["hooks"]["UserPromptSubmit"]
+    already_exists = False
+    for entry in entries:
+        if isinstance(entry, dict) and "hooks" in entry:
+            for h in entry["hooks"]:
+                if h.get("command") == RUNDBAT_HOOK_COMMAND:
+                    already_exists = True
+                    break
 
     if not already_exists:
-        hooks.append({
-            "type": "command",
-            "command": RUNDBAT_HOOK_COMMAND,
+        entries.append({
+            "matcher": "",
+            "hooks": [
+                {
+                    "type": "command",
+                    "command": RUNDBAT_HOOK_COMMAND,
+                }
+            ],
         })
 
     settings_path.write_text(json.dumps(data, indent=2) + "\n")
