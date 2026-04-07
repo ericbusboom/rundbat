@@ -2,7 +2,7 @@
 title: Convert rundbat from MCP server to CLI + Claude skills
 priority: high
 created: 2026-04-06
-status: in-progress
+status: done
 sprint: '001'
 tickets:
 - 001-001

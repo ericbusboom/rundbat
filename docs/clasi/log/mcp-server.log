@@ -115,3 +115,12 @@ path
 2026-04-07T13:19:05 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
 2026-04-07T13:19:05 [INFO]   tools registered: 30
 2026-04-07T13:19:05 [INFO] CLASI MCP server ready
+2026-04-07T13:21:34 [INFO] [team-lead] CALL update_ticket_status({"path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/001-remove-mcp-server-and-fastmcp-dependency.md", "status": "done"})
+2026-04-07T13:21:34 [INFO] [team-lead]   OK update_ticket_status -> ([TextContent(type='text', text='{\n  "path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/001-remove-mcp-server-and-fastmcp-dependency.md",\n  "old_status": "in-progress",\n  "new_status": "done"\n}', annotations=None, meta=None)], {'result': '{\n  "path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/001-remove-mcp-server-and-fastmcp-dependency.md",\n  "old_status": "in-progress",\n  "new_status": "done"\n}'})
+2026-04-07T13:21:37 [INFO] [team-lead] CALL move_ticket_to_done({"sprint_id": "001", "ticket_id": "001"})
+2026-04-07T13:21:37 [ERROR] [team-lead]   FAIL move_ticket_to_done -> ToolError: Error executing tool move_ticket_to_done: 1 validation error for move_ticket_to_doneArguments
+path
+  Field required [type=missing, input_value={'sprint_id': '001', 'ticket_id': '001'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+2026-04-07T13:21:43 [INFO] [team-lead] CALL move_ticket_to_done({"path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/001-remove-mcp-server-and-fastmcp-dependency.md"})
+2026-04-07T13:21:43 [INFO] [team-lead]   OK move_ticket_to_done -> ([TextContent(type='text', text='{\n  "old_path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/001-remove-mcp-server-and-fastmcp-dependency.md",\n  "new_path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker-skills/tickets/done/001-remove-mcp-server-and-fastmcp-dependency.md",\n  "completed_todos": [\n    "convert-mcp-to-cli-plugin.md"\n  ]\n}', annotations=None, meta=None)], {'result': '{\n  "old_path": "docs/clasi/sprints/001-cli-plugin-conversion-and-docker...

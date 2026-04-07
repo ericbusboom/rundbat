@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Remove MCP server and FastMCP dependency
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on: []
