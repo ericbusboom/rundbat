@@ -1,11 +1,13 @@
 ---
-id: "002"
+id: '002'
 title: Expand CLI with subcommands and --json output
-status: todo
-use-cases: [SUC-003]
-depends-on: ["001"]
-github-issue: ""
-todo: ""
+status: done
+use-cases:
+- SUC-003
+depends-on:
+- '001'
+github-issue: ''
+todo: ''
 ---
 
 # Expand CLI with subcommands and --json output
