@@ -1,33 +1,55 @@
 # rundbat — Deployment Expert
 
 When working on tasks that involve databases, deployment, Docker
-containers, or environment setup, use **rundbat CLI commands** instead
-of running Docker or dotconfig commands directly.
+containers, or environment setup, use **rundbat CLI commands** and
+the **deployment-expert agent** instead of running Docker or dotconfig
+commands directly.
 
-rundbat handles Docker container lifecycle, dotconfig integration, port
-allocation, health checks, and stale state recovery automatically.
+## When to use the deployment-expert agent
 
-## Key commands
+Invoke the deployment-expert agent for complex tasks that require
+judgment or multi-step workflows:
+- Setting up deployment for a new project
+- First-time deploy to a remote host
+- Diagnosing container or connectivity issues
+- Generating Docker Compose configurations
 
-| Command | Purpose |
-|---|---|
-| `rundbat discover` | Detect OS, Docker, dotconfig, Node.js |
-| `rundbat create-env <env>` | Provision a database environment |
-| `rundbat get-config <env>` | Get connection string (auto-restarts containers) |
-| `rundbat set-secret <env> KEY=VAL` | Store encrypted secrets via dotconfig |
-| `rundbat start <env>` / `rundbat stop <env>` | Container lifecycle |
-| `rundbat health <env>` | Verify database connectivity |
-| `rundbat validate <env>` | Full environment validation |
-| `rundbat check-drift [env]` | Detect app name changes |
+## When to use rundbat CLI directly
 
-## Configuration
+Use CLI commands for single-step operations:
+- `rundbat discover` — check system prerequisites
+- `rundbat create-env <env>` — provision a database
+- `rundbat get-config <env>` — get connection string
+- `rundbat start/stop <env>` — container lifecycle
+- `rundbat health <env>` — database connectivity check
+- `rundbat validate <env>` — full environment validation
+- `rundbat set-secret <env> KEY=VAL` — store a secret
+- `rundbat check-drift` — detect app name changes
 
-All config flows through **dotconfig**. Read config with:
+All commands support `--json` for machine-parseable output.
+
+## When to use skills
+
+Use skills for guided workflows:
+- `init-docker` — scaffold a docker/ directory
+- `dev-database` — quick local dev database
+- `diagnose` — troubleshoot deployment issues
+- `manage-secrets` — store and manage secrets
+
+## Configuration access
+
+Read config through dotconfig, not by reading files directly:
+
 ```bash
+# All config merged (most common)
 dotconfig load -d <env> --json --flat -S
+
+# Sectioned (to see public vs secret)
+dotconfig load -d <env> --json -S
+
+# Project config
+dotconfig load -d <env> --file rundbat.yaml -S
 ```
 
-Key locations:
-- `config/rundbat.yaml` — Project-wide rundbat config
-- `config/{env}/public.env` — Non-secret env vars
-- `config/{env}/secrets.env` — SOPS-encrypted credentials
+Write config through dotconfig or rundbat CLI — never edit `config/`
+files directly.
