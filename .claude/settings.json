@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'rundbat: If this task involves databases, deployment, or environment setup, use the rundbat MCP server.'"
+            "command": "echo 'rundbat: If this task involves databases, deployment, or environment setup, use the rundbat CLI (rundbat --help).'"
           }
         ]
       }

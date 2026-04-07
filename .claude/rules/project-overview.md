@@ -6,7 +6,7 @@ status: draft
 
 ## Project Name
 
-rundbat — Deployment Expert MCP Server
+rundbat — Deployment Expert CLI
 
 ## Problem Statement
 
@@ -20,7 +20,7 @@ executable tools so agents get correct results every time.
 ## Target Users
 
 - **AI coding agents** operating within the CLASI software engineering
-  process (primary consumers of the MCP tool surface)
+  process (primary consumers of the CLI and skill files)
 - **Students and developers** at the League of Amazing Programmers who
   benefit from automated environment setup
 - **Team leads** managing multi-environment deployments (dev, staging,
@@ -33,8 +33,8 @@ executable tools so agents get correct results every time.
 - **dotconfig owns configuration.** All config read/write goes through
   dotconfig. rundbat never touches `config/` directly. Secrets are
   encrypted via dotconfig and SOPS.
-- **Python package, installed via pipx.** Follows the same installation
-  and MCP server pattern as CLASI.
+- **Python package, installed via pipx.** CLI tool with Claude
+  integration via `.claude/` directories (skills, agents, rules).
 - **Cross-platform.** Must work on macOS, Linux, Windows (WSL2), and
   GitHub Codespaces.
 - **Graceful recovery from stale state.** Every environment query
@@ -65,7 +65,7 @@ executable tools so agents get correct results every time.
 ## Technology Stack
 
 - **Language:** Python
-- **Distribution:** pipx-installable package, doubles as MCP server
+- **Distribution:** pipx-installable CLI package
 - **Infrastructure:** Docker, Docker Compose
 - **Configuration:** dotconfig + SOPS for secret encryption
 - **Database:** PostgreSQL (in Docker containers or managed services)
