@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Update all active files to reference CLI instead of MCP
-status: in-progress
+status: done
 use-cases: []
 depends-on: []
 github-issue: ''
