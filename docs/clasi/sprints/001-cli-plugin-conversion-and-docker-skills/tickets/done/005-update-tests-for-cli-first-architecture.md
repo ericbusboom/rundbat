@@ -1,11 +1,15 @@
 ---
-id: "005"
+id: '005'
 title: Update tests for CLI-first architecture
-status: todo
-use-cases: [SUC-003]
-depends-on: ["001", "002", "003"]
-github-issue: ""
-todo: ""
+status: done
+use-cases:
+- SUC-003
+depends-on:
+- '001'
+- '002'
+- '003'
+github-issue: ''
+todo: ''
 ---
 
 # Update tests for CLI-first architecture
