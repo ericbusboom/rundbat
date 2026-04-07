@@ -143,6 +143,35 @@ def cmd_mcp(args):
     sys.exit(1)
 
 
+def cmd_install(args):
+    """Install Claude integration files into the current project."""
+    from rundbat import installer
+    project_dir = Path.cwd()
+    result = installer.install(project_dir)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        for item in result.get("installed", []):
+            print(f"  + {item['file']}")
+        print(f"\nManifest: {result['manifest']}")
+        print(f"Installed {len(result.get('installed', []))} files.")
+
+
+def cmd_uninstall(args):
+    """Remove rundbat Claude integration files."""
+    from rundbat import installer
+    project_dir = Path.cwd()
+    result = installer.uninstall(project_dir)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    elif "warning" in result:
+        print(result["warning"])
+    else:
+        for f in result.get("removed", []):
+            print(f"  - {f}")
+        print(f"\nRemoved {len(result.get('removed', []))} files.")
+
+
 def cmd_discover(args):
     """Detect system environment."""
     from rundbat import discovery
@@ -396,6 +425,20 @@ Commands:
         help="Application name (auto-detected if not provided)",
     )
     init_parser.set_defaults(func=cmd_init)
+
+    # rundbat install
+    install_parser = subparsers.add_parser(
+        "install", help="Install Claude integration files (.claude/ skills, agents, rules)",
+    )
+    _add_json_flag(install_parser)
+    install_parser.set_defaults(func=cmd_install)
+
+    # rundbat uninstall
+    uninstall_parser = subparsers.add_parser(
+        "uninstall", help="Remove rundbat Claude integration files",
+    )
+    _add_json_flag(uninstall_parser)
+    uninstall_parser.set_defaults(func=cmd_uninstall)
 
     # rundbat mcp (deprecated)
     mcp_parser = subparsers.add_parser(

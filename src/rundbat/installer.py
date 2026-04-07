@@ -1,200 +1,116 @@
-"""Project Installer — install rundbat integration files into a target project."""
+"""Project Installer — install/uninstall rundbat integration files.
 
-import json
-from pathlib import Path
-
-RUNDBAT_HOOK_COMMAND = "echo 'rundbat: If this task involves databases, deployment, or environment setup, use the rundbat MCP server.'"
-
-RUNDBAT_RULE = """\
-# rundbat — Deployment Expert MCP Server
-
-When working on tasks that involve any of the following, use the **rundbat
-MCP tools** instead of running Docker or dotconfig commands directly:
-
-- Setting up a database (local or remote)
-- Getting a database connection string
-- Starting or stopping database containers
-- Managing deployment environments (dev, staging, production)
-- Storing or retrieving secrets and environment variables
-- Checking system prerequisites (Docker, dotconfig, Node.js)
-
-rundbat handles Docker container lifecycle, dotconfig integration, port
-allocation, health checks, and stale state recovery automatically.
-
-**Key tools:**
-- `discover_system` — check what's installed
-- `init_project` — set up rundbat for a new project
-- `create_environment` — provision a database environment
-- `get_environment_config` — get connection string (auto-restarts containers)
-- `set_secret` — store encrypted secrets
-- `health_check` — verify database connectivity
+Installs Claude Code integration files (skills, agents, rules) from the
+bundled content directory into a target project's .claude/ directory.
+Tracks installed files via a manifest for clean uninstall.
 """
 
+import hashlib
+import json
+from importlib import resources
+from pathlib import Path
 
-def install_mcp_config(project_dir: Path) -> dict:
-    """Merge rundbat server entry into .mcp.json."""
-    mcp_path = project_dir / ".mcp.json"
-
-    if mcp_path.exists():
-        data = json.loads(mcp_path.read_text())
-    else:
-        data = {}
-
-    if "mcpServers" not in data:
-        data["mcpServers"] = {}
-
-    data["mcpServers"]["rundbat"] = {
-        "command": "rundbat",
-        "args": ["mcp"],
-    }
-
-    mcp_path.write_text(json.dumps(data, indent=2) + "\n")
-
-    return {"file": str(mcp_path), "action": "merged"}
+MANIFEST_PATH = ".claude/.rundbat-manifest.json"
 
 
-def install_rules(project_dir: Path) -> dict:
-    """Write .claude/rules/rundbat.md rule file."""
-    rules_dir = project_dir / ".claude" / "rules"
-    rules_dir.mkdir(parents=True, exist_ok=True)
-
-    rule_path = rules_dir / "rundbat.md"
-    rule_path.write_text(RUNDBAT_RULE)
-
-    return {"file": str(rule_path), "action": "written"}
+def _content_dir() -> Path:
+    """Return the path to the bundled content directory."""
+    return Path(resources.files("rundbat") / "content")
 
 
-def install_hooks(project_dir: Path) -> dict:
-    """Merge UserPromptSubmit hook into .claude/settings.json.
+def _checksum(path: Path) -> str:
+    """Return the SHA-256 hex digest of a file."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
-    Uses the matcher + hooks array format:
-    {"UserPromptSubmit": [{"matcher": "", "hooks": [{"type": "command", "command": "..."}]}]}
+
+def _install_map() -> dict[str, str]:
+    """Return a mapping of source content paths to target install paths.
+
+    Keys are relative to the content directory; values are relative to the
+    project root.
     """
-    claude_dir = project_dir / ".claude"
-    claude_dir.mkdir(parents=True, exist_ok=True)
+    content = _content_dir()
+    mapping = {}
 
-    settings_path = claude_dir / "settings.json"
+    # Skills → .claude/skills/rundbat/
+    skills_dir = content / "skills"
+    if skills_dir.is_dir():
+        for f in sorted(skills_dir.iterdir()):
+            if f.is_file() and f.suffix == ".md":
+                mapping[f"skills/{f.name}"] = f".claude/skills/rundbat/{f.name}"
 
-    if settings_path.exists():
-        data = json.loads(settings_path.read_text())
-    else:
-        data = {}
+    # Agents → .claude/agents/
+    agents_dir = content / "agents"
+    if agents_dir.is_dir():
+        for f in sorted(agents_dir.iterdir()):
+            if f.is_file() and f.suffix == ".md":
+                mapping[f"agents/{f.name}"] = f".claude/agents/{f.name}"
 
-    if "hooks" not in data:
-        data["hooks"] = {}
+    # Rules → .claude/rules/
+    rules_dir = content / "rules"
+    if rules_dir.is_dir():
+        for f in sorted(rules_dir.iterdir()):
+            if f.is_file() and f.suffix == ".md":
+                mapping[f"rules/{f.name}"] = f".claude/rules/{f.name}"
 
-    if "UserPromptSubmit" not in data["hooks"]:
-        data["hooks"]["UserPromptSubmit"] = []
-
-    # Check if our hook already exists in any matcher group (idempotent)
-    entries = data["hooks"]["UserPromptSubmit"]
-    already_exists = False
-    for entry in entries:
-        if isinstance(entry, dict) and "hooks" in entry:
-            for h in entry["hooks"]:
-                if h.get("command") == RUNDBAT_HOOK_COMMAND:
-                    already_exists = True
-                    break
-
-    if not already_exists:
-        entries.append({
-            "matcher": "",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": RUNDBAT_HOOK_COMMAND,
-                }
-            ],
-        })
-
-    settings_path.write_text(json.dumps(data, indent=2) + "\n")
-
-    return {
-        "file": str(settings_path),
-        "action": "already_present" if already_exists else "merged",
-    }
+    return mapping
 
 
-RUNDBAT_CLAUDE_MD_START = "<!-- RUNDBAT:START -->"
-RUNDBAT_CLAUDE_MD_END = "<!-- RUNDBAT:END -->"
+def install(project_dir: Path) -> dict:
+    """Install all rundbat integration files into the target project.
 
-RUNDBAT_CLAUDE_MD = """\
-<!-- RUNDBAT:START -->
-## rundbat — Deployment Expert
+    Copies bundled content files to .claude/ subdirectories and writes
+    a manifest for uninstall tracking. Idempotent — re-running updates
+    files and manifest.
 
-This project uses **rundbat** to manage Docker-based deployment
-environments. rundbat is an MCP server that handles database provisioning,
-secret management, and environment configuration.
-
-**If you need a database, connection string, deployment environment, or
-anything involving Docker containers or dotconfig — use the rundbat MCP
-tools.** Do not run Docker or dotconfig commands directly.
-
-Run `rundbat mcp --help` for the full tool reference, or call
-`discover_system` to see what is available.
-
-### Quick Reference
-
-| Tool | Purpose |
-|---|---|
-| `discover_system` | Detect OS, Docker, dotconfig, Node.js |
-| `init_project` | Initialize rundbat in a project |
-| `create_environment` | Provision a database environment |
-| `get_environment_config` | Get connection string (auto-restarts containers) |
-| `set_secret` | Store encrypted secrets via dotconfig |
-| `start_database` / `stop_database` | Container lifecycle |
-| `health_check` | Verify database connectivity |
-| `validate_environment` | Full environment validation |
-| `check_config_drift` | Detect app name changes |
-
-### Configuration
-
-Configuration is managed by dotconfig. Run `dotconfig agent` for full
-documentation on how dotconfig works. Key locations:
-
-- `config/rundbat.yaml` — Project-wide rundbat config (app name, naming templates)
-- `config/{env}/secrets.env` — SOPS-encrypted credentials
-- `config/keys/` — SSH keys (encrypted via dotconfig key management)
-<!-- RUNDBAT:END -->"""
-
-
-def install_claude_md(project_dir: Path) -> dict:
-    """Insert or replace the RUNDBAT guarded section in CLAUDE.md."""
-    claude_md_path = project_dir / "CLAUDE.md"
-
-    if claude_md_path.exists():
-        content = claude_md_path.read_text()
-    else:
-        content = ""
-
-    # Check if guarded section exists
-    start_idx = content.find(RUNDBAT_CLAUDE_MD_START)
-    end_idx = content.find(RUNDBAT_CLAUDE_MD_END)
-
-    if start_idx != -1 and end_idx != -1:
-        # Replace existing section
-        end_idx += len(RUNDBAT_CLAUDE_MD_END)
-        new_content = content[:start_idx] + RUNDBAT_CLAUDE_MD + content[end_idx:]
-        action = "replaced"
-    else:
-        # Append to end
-        if content and not content.endswith("\n"):
-            content += "\n"
-        if content:
-            content += "\n"
-        new_content = content + RUNDBAT_CLAUDE_MD + "\n"
-        action = "appended"
-
-    claude_md_path.write_text(new_content)
-    return {"file": str(claude_md_path), "action": action}
-
-
-def install_all(project_dir: Path) -> dict:
-    """Install all rundbat integration files into the target project."""
+    Returns dict with installed file paths and actions taken.
+    """
     project_dir = Path(project_dir)
-    return {
-        "mcp_config": install_mcp_config(project_dir),
-        "rules": install_rules(project_dir),
-        "hooks": install_hooks(project_dir),
-        "claude_md": install_claude_md(project_dir),
-    }
+    content = _content_dir()
+    mapping = _install_map()
+    manifest = {"files": {}, "version": "1"}
+    results = []
+
+    for src_rel, dest_rel in mapping.items():
+        src = content / src_rel
+        dest = project_dir / dest_rel
+
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(src.read_text())
+
+        manifest["files"][dest_rel] = _checksum(dest)
+        results.append({"file": dest_rel, "action": "installed"})
+
+    # Write manifest
+    manifest_path = project_dir / MANIFEST_PATH
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+
+    return {"installed": results, "manifest": str(manifest_path)}
+
+
+def uninstall(project_dir: Path) -> dict:
+    """Remove all rundbat integration files tracked by the manifest.
+
+    Reads the manifest, deletes each listed file, then deletes the
+    manifest itself. Does not remove empty directories.
+
+    Returns dict with removed file paths.
+    """
+    project_dir = Path(project_dir)
+    manifest_path = project_dir / MANIFEST_PATH
+
+    if not manifest_path.exists():
+        return {"warning": "No manifest found — nothing to uninstall."}
+
+    manifest = json.loads(manifest_path.read_text())
+    removed = []
+
+    for file_rel in manifest.get("files", {}):
+        file_path = project_dir / file_rel
+        if file_path.exists():
+            file_path.unlink()
+            removed.append(file_rel)
+
+    manifest_path.unlink()
+    return {"removed": removed, "manifest": "deleted"}

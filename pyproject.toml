@@ -16,6 +16,7 @@ rundbat = "rundbat.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rundbat"]
+artifacts = ["src/rundbat/content/**/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
