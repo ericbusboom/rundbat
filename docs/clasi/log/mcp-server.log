@@ -1,0 +1,58 @@
+2026-04-06T17:49:57 [INFO] ============================================================
+2026-04-06T17:49:57 [INFO] CLASI MCP server starting
+2026-04-06T17:49:57 [INFO]   serving: team-lead (tier 0)
+2026-04-06T17:49:57 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-06T17:49:57 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-06T17:49:57 [INFO]   content_root: /Users/eric/proj/ai-project/clasi/clasi
+2026-04-06T17:49:57 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-06T17:49:57 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-06T17:49:57 [INFO]   tools registered: 30
+2026-04-06T17:49:57 [INFO] CLASI MCP server ready
+2026-04-06T17:50:32 [INFO] [team-lead] CALL list_skills({})
+2026-04-06T17:50:32 [ERROR] [team-lead]   FAIL list_skills -> ToolError: Unknown tool: list_skills
+2026-04-06T17:50:32 [INFO] [team-lead] CALL list_agents({})
+2026-04-06T17:50:32 [ERROR] [team-lead]   FAIL list_agents -> ToolError: Unknown tool: list_agents
+2026-04-06T17:50:32 [INFO] [team-lead] CALL list_instructions({})
+2026-04-06T17:50:32 [ERROR] [team-lead]   FAIL list_instructions -> ToolError: Unknown tool: list_instructions
+2026-04-06T17:51:09 [INFO] [team-lead] CALL list_todos({})
+2026-04-06T17:51:09 [INFO] [team-lead]   OK list_todos -> ([TextContent(type='text', text='[\n  {\n    "filename": "convert-mcp-to-cli-plugin.md",\n    "title": "Convert rundbat from MCP Server to CLI + Claude Skills",\n    "status": "pending"\n  }\n]', annotations=None, meta=None)], {'result': '[\n  {\n    "filename": "convert-mcp-to-cli-plugin.md",\n    "title": "Convert rundbat from MCP Server to CLI + Claude Skills",\n    "status": "pending"\n  }\n]'})
+2026-04-07T07:49:03 [INFO] ============================================================
+2026-04-07T07:49:03 [INFO] ============================================================
+2026-04-07T07:49:03 [INFO] CLASI MCP server starting
+2026-04-07T07:49:03 [INFO] CLASI MCP server starting
+2026-04-07T07:49:03 [INFO]   serving: team-lead (tier 0)
+2026-04-07T07:49:03 [INFO]   serving: team-lead (tier 0)
+2026-04-07T07:49:03 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-07T07:49:03 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-07T07:49:03 [INFO]   content_root: /Users/eric/proj/ai-project/clasi/clasi
+2026-04-07T07:49:03 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-07T07:49:03 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-07T07:49:03 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-07T07:49:03 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-07T07:49:03 [INFO]   content_root: /Users/eric/proj/ai-project/clasi/clasi
+2026-04-07T07:49:03 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-07T07:49:03 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-07T07:49:03 [INFO]   tools registered: 30
+2026-04-07T07:49:03 [INFO]   tools registered: 30
+2026-04-07T07:49:03 [INFO] CLASI MCP server ready
+2026-04-07T07:49:03 [INFO] CLASI MCP server ready
+2026-04-07T12:12:00 [INFO] ============================================================
+2026-04-07T12:12:00 [INFO] ============================================================
+2026-04-07T12:12:00 [INFO] CLASI MCP server starting
+2026-04-07T12:12:00 [INFO] CLASI MCP server starting
+2026-04-07T12:12:00 [INFO]   serving: team-lead (tier 0)
+2026-04-07T12:12:00 [INFO]   serving: team-lead (tier 0)
+2026-04-07T12:12:00 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-07T12:12:00 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-07T12:12:00 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-07T12:12:00 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-07T12:12:00 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-07T12:12:00 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-07T12:12:00 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-07T12:12:00 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-07T12:12:00 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-07T12:12:00 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-07T12:12:00 [INFO]   tools registered: 30
+2026-04-07T12:12:00 [INFO] CLASI MCP server ready
+2026-04-07T12:12:00 [INFO]   tools registered: 30
+2026-04-07T12:12:00 [INFO] CLASI MCP server ready
