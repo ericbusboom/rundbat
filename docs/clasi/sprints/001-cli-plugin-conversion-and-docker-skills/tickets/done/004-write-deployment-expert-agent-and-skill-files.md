@@ -1,10 +1,11 @@
 ---
-id: "004"
+id: '004'
 title: Write deployment-expert agent and skill files
-status: todo
-use-cases: [SUC-004]
+status: done
+use-cases:
+- SUC-004
 depends-on: []
-github-issue: ""
+github-issue: ''
 todo: deployment-use-cases.md
 ---
 
