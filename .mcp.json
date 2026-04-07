@@ -7,12 +7,6 @@
         "clasi",
         "mcp"
       ]
-    },
-    "rundbat": {
-      "command": "rundbat",
-      "args": [
-        "mcp"
-      ]
     }
   }
 }
