@@ -1,0 +1,5 @@
+app_name: proj
+app_name_source: directory name (proj)
+container_template: '{app}-{env}-pg'
+database_template: '{app}_{env}'
+notes: []

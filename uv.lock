@@ -223,7 +223,7 @@ wheels = [
 
 [[package]]
 name = "rundbat"
-version = "0.20260317.2"
+version = "0.20260407.2"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

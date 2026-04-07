@@ -1,0 +1,11 @@
+{
+  "files": {
+    ".claude/skills/rundbat/dev-database.md": "8369369dd7807f4ab651dc3ca42b937a5095a7f4bcff1821dde4fea039f3fc06",
+    ".claude/skills/rundbat/diagnose.md": "39288516a7ad499a6b08f4ac8af89f4c7401e44d6751102cd49d5da0040e3bdf",
+    ".claude/skills/rundbat/init-docker.md": "cd5a0d818f976457b1d3ef270712585d1b3197be6116fbf56b5b90c48b5fd157",
+    ".claude/skills/rundbat/manage-secrets.md": "b9035bfc311fba242f1c895cd39e61c3c300de22b9c3b02a10452af5267622f7",
+    ".claude/agents/deployment-expert.md": "a25d37c22ee1cea809ed289c34e8a10f1b160ff0a51b9582438945490beb1861",
+    ".claude/rules/rundbat.md": "2806f12b1a1425a16273f7bae9ea2d31a58edf59273f48a320e8ea01abd3d19e"
+  },
+  "version": "1"
+}
