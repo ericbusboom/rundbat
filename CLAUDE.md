@@ -9,36 +9,40 @@ Available skills: run `/se` for a list.
 ## rundbat — Deployment Expert
 
 This project uses **rundbat** to manage Docker-based deployment
-environments. rundbat is an MCP server that handles database provisioning,
-secret management, and environment configuration.
+environments. rundbat is a CLI tool that handles database provisioning,
+Docker directory generation, secret management, and environment config.
 
 **If you need a database, connection string, deployment environment, or
-anything involving Docker containers or dotconfig — use the rundbat MCP
-tools.** Do not run Docker or dotconfig commands directly.
+anything involving Docker containers or dotconfig — use the rundbat CLI.**
 
-Run `rundbat mcp --help` for the full tool reference, or call
-`discover_system` to see what is available.
+Run `rundbat --help` for the full command reference.
 
 ### Quick Reference
 
-| Tool | Purpose |
+| Command | Purpose |
 |---|---|
-| `discover_system` | Detect OS, Docker, dotconfig, Node.js |
-| `init_project` | Initialize rundbat in a project |
-| `create_environment` | Provision a database environment |
-| `get_environment_config` | Get connection string (auto-restarts containers) |
-| `set_secret` | Store encrypted secrets via dotconfig |
-| `start_database` / `stop_database` | Container lifecycle |
-| `health_check` | Verify database connectivity |
-| `validate_environment` | Full environment validation |
-| `check_config_drift` | Detect app name changes |
+| `rundbat discover` | Detect OS, Docker, dotconfig, Node.js |
+| `rundbat init` | Initialize rundbat in a project |
+| `rundbat create-env <env>` | Provision a database environment |
+| `rundbat get-config <env>` | Get connection string (auto-restarts containers) |
+| `rundbat set-secret <env> K=V` | Store encrypted secrets via dotconfig |
+| `rundbat start <env>` / `stop <env>` | Container lifecycle |
+| `rundbat health <env>` | Verify database connectivity |
+| `rundbat validate <env>` | Full environment validation |
+| `rundbat check-drift` | Detect app name changes |
+| `rundbat init-docker` | Generate docker/ directory |
+| `rundbat add-service <type>` | Add database service to compose |
+| `rundbat install` / `uninstall` | Manage Claude integration files |
+
+All commands support `--json` for machine-parseable output.
 
 ### Configuration
 
-Configuration is managed by dotconfig. Run `dotconfig agent` for full
-documentation on how dotconfig works. Key locations:
+Configuration is managed by dotconfig. Read config via:
+`dotconfig load -d <env> --json --flat -S`
 
-- `config/{env}/rundbat.yaml` — Per-environment rundbat config
+Key locations:
+- `config/rundbat.yaml` — Project-wide config (app name, services, deployments)
+- `config/{env}/public.env` — Non-secret environment variables
 - `config/{env}/secrets.env` — SOPS-encrypted credentials
-- `config/keys/` — SSH keys (encrypted via dotconfig key management)
 <!-- RUNDBAT:END -->

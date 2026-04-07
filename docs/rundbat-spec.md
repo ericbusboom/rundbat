@@ -1,30 +1,30 @@
-# rundbat — Deployment Expert MCP Server
+# rundbat — Deployment Expert CLI
 
 **Specification Document**
-Version 0.1 — March 2026
+Version 0.2 — April 2026
 League of Amazing Programmers
 
 ---
 
 ## 1. Overview
 
-rundbat is an MCP server that manages Docker-based deployment environments for Node/Postgres applications. It automates environment discovery, database provisioning, secret management, and production deployment. It is designed for use by AI coding agents operating within the CLASI software engineering process.
+rundbat is a CLI tool that manages Docker-based deployment environments for web applications. It automates environment discovery, database provisioning, Docker directory generation, secret management, and deployment. It is designed for use by AI coding agents (via Claude skills and agents) and developers (via the CLI directly).
 
-rundbat encodes deployment procedures in executable code rather than instructional documents. When an agent needs a database, it calls a tool that creates the database correctly, validates the configuration, and returns a connection string. The agent decides what to set up; rundbat ensures it is set up right.
+rundbat encodes deployment procedures in executable code rather than instructional documents. When an agent needs a database, it calls a CLI command that creates the database correctly, validates the configuration, and returns a connection string. The agent decides what to set up; rundbat ensures it is set up right.
 
 ### 1.1 Design Principles
 
-- **Tools for procedures that must be exact.** Creating databases, writing config files, managing secrets, validating connections. The server executes the procedure, not the agent.
-- **Knowledge for decisions that require context.** Choosing between deployment targets, selecting database configurations. The server returns skill files; the agent reasons about them.
-- **Docker is the only runtime.** All databases and application containers run in Docker. No native Postgres installations. If Docker is not present, rundbat installs it or guides the user through the one manual step required.
+- **CLI commands for procedures that must be exact.** Creating databases, writing config files, managing secrets, validating connections. The CLI executes the procedure, not the agent.
+- **Skill files for decisions that require context.** Choosing between deployment targets, selecting database configurations. Skills are installed via `rundbat install`; the agent reasons about them.
+- **Docker is the only runtime.** All databases and application containers run in Docker. No native Postgres installations. If Docker is not present, rundbat guides the user through the setup.
 - **dotconfig owns configuration.** rundbat reads and writes through dotconfig. It never touches files under `config/` directly. Secrets are encrypted via dotconfig and SOPS.
 - **Recover gracefully from stale state.** Containers disappear, machines change, team members join late. Every environment query includes a liveness check and clear remediation when things are out of sync.
 
 ### 1.2 Relationship to CLASI
 
-CLASI manages the software engineering process: sprints, tickets, architecture, code review. rundbat manages the deployment infrastructure: databases, containers, environments, secrets. They are separate MCP servers with no direct dependency. An agent working on a CLASI sprint may call rundbat to get a database connection string, but neither server knows about the other.
+CLASI manages the software engineering process: sprints, tickets, architecture, code review. rundbat manages the deployment infrastructure: databases, containers, environments, secrets. They are separate tools with no direct dependency. An agent working on a CLASI sprint may call rundbat to get a database connection string, but neither tool knows about the other.
 
-Both follow the same architectural pattern: installed via pipx, exposed as an MCP server, serving a mix of executable tools and knowledge files to AI agents.
+Both follow the same distribution pattern: installed via pipx, with Claude integration via `.claude/` directories.
 
 ### 1.3 Relationship to dotconfig
 
@@ -49,7 +49,7 @@ rundbat calls dotconfig as a subprocess. It runs `dotconfig load` to read config
 
 ### 2.2 Installation
 
-rundbat is installed via pipx, which creates a CLI program that doubles as an MCP server. The agent connects to it from the project workspace, the same pattern as CLASI.
+rundbat is installed via pipx, which creates a `rundbat` CLI command. Claude integration files (skills, agents, rules) are installed into the project via `rundbat install`.
 
 ### 2.3 Out of Scope
 
