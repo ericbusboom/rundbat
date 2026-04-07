@@ -1,11 +1,14 @@
 ---
-id: "003"
+id: '003'
 title: Install/uninstall commands with manifest tracking
-status: todo
-use-cases: [SUC-001, SUC-002]
-depends-on: ["001"]
-github-issue: ""
-todo: ""
+status: done
+use-cases:
+- SUC-001
+- SUC-002
+depends-on:
+- '001'
+github-issue: ''
+todo: ''
 ---
 
 # Install/uninstall commands with manifest tracking
