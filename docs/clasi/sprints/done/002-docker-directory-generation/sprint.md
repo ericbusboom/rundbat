@@ -1,9 +1,12 @@
 ---
-id: "002"
-title: "Docker Directory Generation"
-status: planning
+id: '002'
+title: Docker Directory Generation
+status: done
 branch: sprint/002-docker-directory-generation
-use-cases: [SUC-001, SUC-002, SUC-003]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
 ---
 
 # Sprint 002: Docker Directory Generation
