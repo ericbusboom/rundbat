@@ -1,7 +1,7 @@
 ---
-id: "003"
-title: "Remove Stale MCP References"
-status: planning
+id: '003'
+title: Remove Stale MCP References
+status: done
 branch: sprint/003-remove-stale-mcp-references
 use-cases: []
 ---
