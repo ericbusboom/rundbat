@@ -2,7 +2,7 @@
 title: Remove stale MCP server references from project files
 priority: high
 created: 2026-04-07
-status: in-progress
+status: done
 sprint: '003'
 tickets:
 - 003-001
