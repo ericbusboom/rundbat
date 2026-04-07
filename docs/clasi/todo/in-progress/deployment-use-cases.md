@@ -1,8 +1,12 @@
 ---
-title: Deployment use cases — full lifecycle
+title: "Deployment use cases \u2014 full lifecycle"
 priority: high
 created: 2026-04-07
 related: convert-mcp-to-cli-plugin.md
+status: in-progress
+sprint: '001'
+tickets:
+- 001-004
 ---
 
 # Deployment Use Cases — Full Lifecycle

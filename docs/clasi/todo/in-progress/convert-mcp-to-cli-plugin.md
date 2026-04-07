@@ -2,6 +2,10 @@
 title: Convert rundbat from MCP server to CLI + Claude skills
 priority: high
 created: 2026-04-06
+status: in-progress
+sprint: '001'
+tickets:
+- 001-001
 ---
 
 # Convert rundbat from MCP Server to CLI + Claude Skills

@@ -1,4 +1,4 @@
-"""rundbat — Deployment Expert MCP Server."""
+"""rundbat — Deployment Expert for Docker-based environments."""
 
 from importlib.metadata import version, PackageNotFoundError
 

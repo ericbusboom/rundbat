@@ -39,14 +39,13 @@ def test_env_no_subcommand_shows_help():
     assert "connstr" in result.stdout
 
 
-def test_mcp_help_shows_tools():
-    """rundbat mcp --help shows the detailed agent-oriented help."""
+def test_mcp_shows_deprecation():
+    """rundbat mcp prints deprecation message and exits 1."""
     result = subprocess.run(
-        [sys.executable, "-m", "rundbat.cli", "mcp", "--help"],
+        [sys.executable, "-m", "rundbat.cli", "mcp"],
         capture_output=True,
         text=True,
     )
-    assert result.returncode == 0
-    assert "discover_system" in result.stdout
-    assert "get_environment_config" in result.stdout
-    assert "MCP TOOLS" in result.stdout
+    assert result.returncode == 1
+    assert "removed" in result.stderr
+    assert "rundbat install" in result.stderr

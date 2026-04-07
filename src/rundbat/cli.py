@@ -7,61 +7,6 @@ from pathlib import Path
 
 from rundbat import __version__
 
-MCP_HELP = """\
-rundbat mcp — Start the rundbat MCP server over stdio.
-
-This command is meant to be called by an AI coding agent (e.g., Claude
-Code) as an MCP server, not run directly by a human. The agent connects
-over stdio and calls tools to manage deployment environments.
-
-AVAILABLE MCP TOOLS
-
-  Discovery:
-    discover_system        Detect OS, Docker, dotconfig, Node.js, existing config
-    verify_docker          Confirm docker info succeeds
-
-  Project Setup:
-    init_project           Initialize rundbat config via dotconfig; install
-                           .mcp.json, rules, and hooks into the project
-    create_environment     Provision a local Postgres container with credentials
-    set_secret             Write a secret to dotconfig .env (encrypted via SOPS)
-
-  Day-to-Day:
-    get_environment_config Load config, auto-restart stopped containers, check
-                           drift, return connection string — single call
-    start_database         Start a stopped Postgres container
-    stop_database          Stop a running Postgres container
-    health_check           Run pg_isready to verify database connectivity
-    validate_environment   Full check: config, secrets, container, connectivity
-    check_config_drift     Detect if app name changed at its source file
-
-HOW IT WORKS
-
-  rundbat manages Docker-based local dev databases for Node/Postgres apps.
-  All configuration is stored via dotconfig (encrypted secrets, layered
-  .env files). Database containers follow the naming convention:
-
-    Container: {app}-{env}-pg       (configurable via container_template)
-    Database:  {app}_{env}          (configurable via database_template)
-
-  The most common interaction is get_environment_config — call it at the
-  start of a session and you get back a working connection string. If the
-  container was stopped, rundbat restarts it. If it was deleted, rundbat
-  recreates it (with a data-loss warning).
-
-CONFIGURATION
-
-  rundbat stores state in rundbat.yaml files managed by dotconfig:
-
-    config/rundbat.yaml          Project-wide rundbat config (app name, templates)
-    config/{env}/secrets.env     SOPS-encrypted credentials
-    config/{env}/public.env      Non-secret environment variables
-
-USAGE
-
-  In .mcp.json:
-    { "mcpServers": { "rundbat": { "command": "rundbat", "args": ["mcp"] } } }
-"""
 
 
 def _detect_app_name() -> tuple[str, str] | None:
@@ -177,9 +122,12 @@ def cmd_init(args):
 
 
 def cmd_mcp(args):
-    """Run the MCP server."""
-    from rundbat.server import server
-    server.run(transport="stdio")
+    """Deprecated — the MCP server has been removed."""
+    print("The rundbat MCP server has been removed.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("rundbat now integrates with Claude via native .claude/ directories.", file=sys.stderr)
+    print("Run 'rundbat install' to set up Claude integration files.", file=sys.stderr)
+    sys.exit(1)
 
 
 def cmd_env_list(args):
@@ -251,13 +199,15 @@ def main():
         description="Deployment Expert — manage Docker-based dev environments",
         epilog="""\
 Getting started:
-  rundbat init               Set up rundbat in your project (run this first)
+  rundbat init               Set up rundbat in your project
+  rundbat install            Install Claude integration files
 
-AI AGENTS: Run 'rundbat mcp' to start the MCP server, or
-'rundbat mcp --help' for full tool documentation.
-
-Human users: Run 'rundbat env list' to see configured environments,
-or 'rundbat env connstr <name>' to get a connection string.""",
+Commands:
+  rundbat env list           List configured environments
+  rundbat env connstr <env>  Get a database connection string
+  rundbat discover           Detect system environment
+  rundbat create-env <env>   Provision a new environment
+  rundbat get-config <env>   Load config and connection string""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -277,12 +227,10 @@ or 'rundbat env connstr <name>' to get a connection string.""",
     )
     init_parser.set_defaults(func=cmd_init)
 
-    # rundbat mcp
+    # rundbat mcp (deprecated)
     mcp_parser = subparsers.add_parser(
         "mcp",
-        help="Start the MCP server (for AI agents)",
-        description=MCP_HELP,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="(deprecated) MCP server removed — use 'rundbat install' instead",
     )
     mcp_parser.set_defaults(func=cmd_mcp)
 
