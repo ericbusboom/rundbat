@@ -1,15 +1,15 @@
 ---
-id: "001"
-title: "Flask Counter App"
-status: planning
+id: '001'
+title: Flask Counter App
+status: done
 branch: sprint/001-flask-counter-app
 use-cases:
-  - SUC-001
-  - SUC-002
-  - SUC-003
-  - SUC-004
-  - SUC-005
-  - SUC-006
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 

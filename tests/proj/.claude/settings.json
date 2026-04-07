@@ -1,4 +1,5 @@
 {
+  "bypassPermissionsModeAccepted": true,
   "hooks": {
     "SubagentStart": [
       {
