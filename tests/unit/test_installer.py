@@ -1,144 +1,93 @@
-"""Tests for the Project Installer."""
+"""Tests for the Project Installer (manifest-based install/uninstall)."""
 
 import json
 from pathlib import Path
 
-from rundbat.installer import (
-    install_mcp_config,
-    install_rules,
-    install_hooks,
-    install_all,
-    RUNDBAT_HOOK_COMMAND,
-)
+from rundbat.installer import install, uninstall, MANIFEST_PATH
 
 
-class TestInstallMcpConfig:
-    """Tests for .mcp.json merging."""
+class TestInstall:
+    """Tests for rundbat install."""
 
-    def test_creates_new_file(self, tmp_path):
-        install_mcp_config(tmp_path)
-        mcp_path = tmp_path / ".mcp.json"
-        assert mcp_path.exists()
-        data = json.loads(mcp_path.read_text())
-        assert "rundbat" in data["mcpServers"]
-        assert data["mcpServers"]["rundbat"]["command"] == "rundbat"
+    def test_creates_files(self, tmp_path):
+        result = install(tmp_path)
+        installed = [item["file"] for item in result["installed"]]
+        assert ".claude/skills/rundbat/dev-database.md" in installed
+        assert ".claude/skills/rundbat/diagnose.md" in installed
+        assert ".claude/skills/rundbat/init-docker.md" in installed
+        assert ".claude/skills/rundbat/manage-secrets.md" in installed
+        assert ".claude/agents/deployment-expert.md" in installed
+        assert ".claude/rules/rundbat.md" in installed
 
-    def test_preserves_existing_servers(self, tmp_path):
-        mcp_path = tmp_path / ".mcp.json"
-        existing = {"mcpServers": {"clasi": {"command": "clasi", "args": ["mcp"]}}}
-        mcp_path.write_text(json.dumps(existing))
-
-        install_mcp_config(tmp_path)
-        data = json.loads(mcp_path.read_text())
-        assert "clasi" in data["mcpServers"]
-        assert "rundbat" in data["mcpServers"]
-
-    def test_updates_existing_entry(self, tmp_path):
-        mcp_path = tmp_path / ".mcp.json"
-        existing = {"mcpServers": {"rundbat": {"command": "old-rundbat"}}}
-        mcp_path.write_text(json.dumps(existing))
-
-        install_mcp_config(tmp_path)
-        data = json.loads(mcp_path.read_text())
-        assert data["mcpServers"]["rundbat"]["command"] == "rundbat"
-
-
-class TestInstallRules:
-    """Tests for .claude/rules/rundbat.md creation."""
-
-    def test_creates_rule_file(self, tmp_path):
-        install_rules(tmp_path)
-        rule_path = tmp_path / ".claude" / "rules" / "rundbat.md"
-        assert rule_path.exists()
-        content = rule_path.read_text()
-        assert "rundbat" in content
-        assert "database" in content.lower()
-
-    def test_creates_directories(self, tmp_path):
-        install_rules(tmp_path)
-        assert (tmp_path / ".claude" / "rules").is_dir()
-
-    def test_overwrites_existing(self, tmp_path):
-        rule_path = tmp_path / ".claude" / "rules" / "rundbat.md"
-        rule_path.parent.mkdir(parents=True)
-        rule_path.write_text("old content")
-
-        install_rules(tmp_path)
-        assert "old content" not in rule_path.read_text()
-
-
-class TestInstallHooks:
-    """Tests for .claude/settings.json hook merging."""
-
-    def test_creates_new_settings(self, tmp_path):
-        install_hooks(tmp_path)
-        settings_path = tmp_path / ".claude" / "settings.json"
-        assert settings_path.exists()
-        data = json.loads(settings_path.read_text())
-        entries = data["hooks"]["UserPromptSubmit"]
-        assert len(entries) == 1
-        assert entries[0]["matcher"] == ""
-        assert entries[0]["hooks"][0]["command"] == RUNDBAT_HOOK_COMMAND
-
-    def test_preserves_existing_hooks(self, tmp_path):
-        claude_dir = tmp_path / ".claude"
-        claude_dir.mkdir()
-        settings_path = claude_dir / "settings.json"
-        existing = {
-            "hooks": {
-                "UserPromptSubmit": [
-                    {
-                        "matcher": "",
-                        "hooks": [
-                            {"type": "command", "command": "echo 'CLASI: hello'"}
-                        ],
-                    }
-                ]
-            }
-        }
-        settings_path.write_text(json.dumps(existing))
-
-        install_hooks(tmp_path)
-        data = json.loads(settings_path.read_text())
-        entries = data["hooks"]["UserPromptSubmit"]
-        assert len(entries) == 2
-        all_commands = [
-            h["command"]
-            for entry in entries
-            for h in entry.get("hooks", [])
-        ]
-        assert "echo 'CLASI: hello'" in all_commands
-        assert RUNDBAT_HOOK_COMMAND in all_commands
-
-    def test_idempotent(self, tmp_path):
-        install_hooks(tmp_path)
-        install_hooks(tmp_path)
-        settings_path = tmp_path / ".claude" / "settings.json"
-        data = json.loads(settings_path.read_text())
-        entries = data["hooks"]["UserPromptSubmit"]
-        # Should not duplicate
-        assert len(entries) == 1
-
-
-class TestInstallAll:
-    """Tests for the combined installer."""
-
-    def test_installs_everything(self, tmp_path):
-        result = install_all(tmp_path)
-        assert "mcp_config" in result
-        assert "rules" in result
-        assert "hooks" in result
-        assert (tmp_path / ".mcp.json").exists()
+    def test_files_exist_on_disk(self, tmp_path):
+        install(tmp_path)
+        assert (tmp_path / ".claude" / "skills" / "rundbat" / "dev-database.md").exists()
+        assert (tmp_path / ".claude" / "agents" / "deployment-expert.md").exists()
         assert (tmp_path / ".claude" / "rules" / "rundbat.md").exists()
-        assert (tmp_path / ".claude" / "settings.json").exists()
+
+    def test_creates_manifest(self, tmp_path):
+        install(tmp_path)
+        manifest_path = tmp_path / MANIFEST_PATH
+        assert manifest_path.exists()
+        manifest = json.loads(manifest_path.read_text())
+        assert "files" in manifest
+        assert len(manifest["files"]) >= 6
+
+    def test_manifest_has_checksums(self, tmp_path):
+        install(tmp_path)
+        manifest = json.loads((tmp_path / MANIFEST_PATH).read_text())
+        for path, checksum in manifest["files"].items():
+            assert len(checksum) == 64  # SHA-256 hex
 
     def test_idempotent(self, tmp_path):
-        install_all(tmp_path)
-        install_all(tmp_path)
+        result1 = install(tmp_path)
+        result2 = install(tmp_path)
+        assert len(result1["installed"]) == len(result2["installed"])
+        # Files should still exist and manifest should be valid
+        manifest = json.loads((tmp_path / MANIFEST_PATH).read_text())
+        assert len(manifest["files"]) >= 6
 
-        # Verify no duplicates
-        data = json.loads((tmp_path / ".mcp.json").read_text())
-        assert len(data["mcpServers"]) == 1
+    def test_rules_content(self, tmp_path):
+        install(tmp_path)
+        rules = (tmp_path / ".claude" / "rules" / "rundbat.md").read_text()
+        assert "rundbat" in rules
+        assert "dotconfig" in rules
 
-        settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-        assert len(settings["hooks"]["UserPromptSubmit"]) == 1
+
+class TestUninstall:
+    """Tests for rundbat uninstall."""
+
+    def test_removes_installed_files(self, tmp_path):
+        install(tmp_path)
+        result = uninstall(tmp_path)
+        removed = result["removed"]
+        assert ".claude/skills/rundbat/dev-database.md" in removed
+        assert ".claude/agents/deployment-expert.md" in removed
+        assert ".claude/rules/rundbat.md" in removed
+
+    def test_files_deleted_from_disk(self, tmp_path):
+        install(tmp_path)
+        uninstall(tmp_path)
+        assert not (tmp_path / ".claude" / "skills" / "rundbat" / "dev-database.md").exists()
+        assert not (tmp_path / ".claude" / "agents" / "deployment-expert.md").exists()
+        assert not (tmp_path / ".claude" / "rules" / "rundbat.md").exists()
+
+    def test_manifest_deleted(self, tmp_path):
+        install(tmp_path)
+        uninstall(tmp_path)
+        assert not (tmp_path / MANIFEST_PATH).exists()
+
+    def test_no_manifest_warns(self, tmp_path):
+        result = uninstall(tmp_path)
+        assert "warning" in result
+
+    def test_directories_preserved(self, tmp_path):
+        install(tmp_path)
+        # Add a non-rundbat file in .claude/
+        other_file = tmp_path / ".claude" / "rules" / "other.md"
+        other_file.write_text("keep me")
+
+        uninstall(tmp_path)
+        # Directories should still exist (other tools may use them)
+        assert (tmp_path / ".claude" / "rules").is_dir()
+        assert other_file.exists()

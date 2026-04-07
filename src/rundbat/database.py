@@ -83,6 +83,29 @@ def database_name(app_name: str, env: str, template: str | None = None) -> str:
     return tmpl.format(app=app_name, env=env)
 
 
+def get_container_name(env: str) -> str:
+    """Look up the container name for an environment from config.
+
+    Checks per-env public.env first, falls back to deriving from
+    project config templates.
+    """
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    env_vars = config.load_public_env(env)
+    container = env_vars.get("DB_CONTAINER")
+    if container:
+        return container
+    try:
+        project_config = config.load_config()
+        app_name = project_config.get("app_name", "unknown")
+        template = project_config.get("container_template")
+    except ConfigError:
+        app_name = "unknown"
+        template = None
+    return container_name(app_name, env, template)
+
+
 def _is_port_available(port: int) -> bool:
     """Check if a TCP port is available on localhost."""
     try:
