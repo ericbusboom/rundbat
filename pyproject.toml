@@ -31,4 +31,6 @@ markers = [
 dev = [
     "pytest",
     "psycopg[binary]",
+    "flask",
+    "redis",
 ]
