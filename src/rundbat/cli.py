@@ -302,6 +302,55 @@ def cmd_check_drift(args):
     _output(result, args.json)
 
 
+def cmd_init_docker(args):
+    """Scaffold a docker/ directory for the project."""
+    from rundbat import generators, config
+    from rundbat.config import ConfigError
+
+    project_dir = Path.cwd()
+
+    # Load rundbat.yaml for app_name, framework, services
+    app_name = "app"
+    framework = None
+    services = None
+    hostname = None
+    swarm = False
+
+    try:
+        cfg = config.load_config()
+        app_name = cfg.get("app_name", "app")
+        if cfg.get("framework"):
+            framework = {"language": "unknown", "framework": cfg["framework"], "entry_point": ""}
+        services = cfg.get("services")
+        # Check for deployment hostname
+        deployments = cfg.get("deployments", {})
+        for dep in deployments.values():
+            if dep.get("hostname"):
+                hostname = dep["hostname"]
+                swarm = dep.get("swarm", False)
+                break
+    except ConfigError:
+        pass
+
+    result = generators.init_docker(
+        project_dir, app_name, framework, services, hostname, swarm,
+    )
+    if "error" in result:
+        _error(result["error"], args.json)
+    _output(result, args.json)
+
+
+def cmd_add_service(args):
+    """Add a database service to existing docker-compose.yml."""
+    from rundbat import generators
+
+    project_dir = Path.cwd()
+    result = generators.add_service(project_dir, args.service_type, args.version)
+    if "error" in result:
+        _error(result["error"], args.json)
+    _output(result, args.json)
+
+
 def cmd_env_list(args):
     """List configured environments."""
     config_dir = Path("config")
@@ -523,6 +572,26 @@ Commands:
     _add_env_arg(check_drift_parser, nargs="?", default="dev")
     _add_json_flag(check_drift_parser)
     check_drift_parser.set_defaults(func=cmd_check_drift)
+
+    # rundbat init-docker
+    init_docker_parser = subparsers.add_parser(
+        "init-docker", help="Scaffold a docker/ directory (Dockerfile, compose, Justfile)",
+    )
+    _add_json_flag(init_docker_parser)
+    init_docker_parser.set_defaults(func=cmd_init_docker)
+
+    # rundbat add-service <type>
+    add_service_parser = subparsers.add_parser(
+        "add-service", help="Add a database service to docker-compose.yml",
+    )
+    add_service_parser.add_argument(
+        "service_type", help="Service type: postgres, mariadb, redis",
+    )
+    add_service_parser.add_argument(
+        "--version", default="latest", help="Service version (default: latest)",
+    )
+    _add_json_flag(add_service_parser)
+    add_service_parser.set_defaults(func=cmd_add_service)
 
     # rundbat env
     env_parser = subparsers.add_parser(
