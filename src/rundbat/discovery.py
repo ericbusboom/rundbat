@@ -165,6 +165,21 @@ def discover_system() -> dict:
     }
 
 
+def local_docker_platform() -> str:
+    """Return the local Docker platform string (e.g., 'linux/arm64').
+
+    Maps platform.machine() to Docker's platform notation.
+    """
+    machine = platform.machine().lower()
+    mapping = {
+        "arm64": "linux/arm64",
+        "aarch64": "linux/arm64",
+        "x86_64": "linux/amd64",
+        "amd64": "linux/amd64",
+    }
+    return mapping.get(machine, f"linux/{machine}")
+
+
 def verify_docker() -> dict:
     """Verify that Docker is installed and running."""
     result = _run_command(["docker", "info"])

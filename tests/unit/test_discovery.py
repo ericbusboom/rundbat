@@ -9,6 +9,7 @@ from rundbat.discovery import (
     detect_dotconfig,
     detect_node,
     discover_system,
+    local_docker_platform,
     verify_docker,
 )
 
@@ -176,3 +177,24 @@ def test_verify_docker_not_ok():
         result = verify_docker()
         assert result["ok"] is False
         assert result["error"] is not None
+
+
+def test_local_docker_platform_arm64():
+    """Maps arm64 to linux/arm64."""
+    with patch("rundbat.discovery.platform") as mock_plat:
+        mock_plat.machine.return_value = "arm64"
+        assert local_docker_platform() == "linux/arm64"
+
+
+def test_local_docker_platform_x86_64():
+    """Maps x86_64 to linux/amd64."""
+    with patch("rundbat.discovery.platform") as mock_plat:
+        mock_plat.machine.return_value = "x86_64"
+        assert local_docker_platform() == "linux/amd64"
+
+
+def test_local_docker_platform_unknown():
+    """Falls back to linux/<machine> for unknown architectures."""
+    with patch("rundbat.discovery.platform") as mock_plat:
+        mock_plat.machine.return_value = "riscv64"
+        assert local_docker_platform() == "linux/riscv64"

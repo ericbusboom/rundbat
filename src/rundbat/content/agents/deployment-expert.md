@@ -67,13 +67,28 @@ dotconfig keys
 
 Never edit `config/` files directly. Never echo secret values.
 
+## Build strategies
+
+Each deployment in `rundbat.yaml` has a `build_strategy`:
+
+| Strategy | How it works |
+|----------|-------------|
+| `context` | Build on the Docker context target (default). Cleanup after deploy. |
+| `ssh-transfer` | Build locally with `--platform`, transfer images via SSH. For small or cross-arch remotes. |
+| `github-actions` | CI builds and pushes to GHCR. Remote pulls. Zero load on local/remote. |
+
+Set during `deploy-init` or override per-deploy with `--strategy`.
+
 ## Decision framework
 
 1. **New project?** → `rundbat init`, then `rundbat init-docker`
 2. **Need services running?** → `docker compose up -d`
-3. **Deploy remotely?** → `rundbat deploy-init prod --host ssh://...`,
-   then `rundbat deploy prod`
-4. **Something broken?** → `docker compose ps`, `docker compose logs`,
+3. **Deploy remotely?** → Use the `deploy-setup` skill for guided setup,
+   or `rundbat deploy-init prod --host ssh://... --strategy ssh-transfer`
+4. **Different architecture?** → Use `ssh-transfer` or `github-actions`
+   (auto-detected during `deploy-init`)
+5. **Want CI/CD?** → Use `github-actions` strategy, generates workflow
+6. **Something broken?** → `docker compose ps`, `docker compose logs`,
    `docker inspect`
 
 ## Configuration structure

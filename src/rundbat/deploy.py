@@ -1,7 +1,15 @@
-"""Deploy Service — deploy to Docker hosts via Docker contexts."""
+"""Deploy Service — deploy to Docker hosts via Docker contexts.
+
+Supports three build strategies:
+- context: build on the Docker context target (default)
+- ssh-transfer: build locally with --platform, transfer via SSH
+- github-actions: pull pre-built images from GHCR
+"""
 
 import subprocess
 from pathlib import Path
+
+VALID_STRATEGIES = ("context", "ssh-transfer", "github-actions")
 
 
 class DeployError(Exception):
@@ -66,6 +74,121 @@ def get_current_context() -> str:
         return "default"
 
 
+def _detect_remote_platform(context_name: str) -> str | None:
+    """Detect the architecture of a remote Docker host via its context.
+
+    Returns a Docker platform string (e.g., 'linux/amd64') or None on failure.
+    """
+    try:
+        arch = _run_docker([
+            "--context", context_name, "info",
+            "--format", "{{.Architecture}}",
+        ])
+    except DeployError:
+        return None
+
+    mapping = {
+        "x86_64": "linux/amd64",
+        "amd64": "linux/amd64",
+        "aarch64": "linux/arm64",
+        "arm64": "linux/arm64",
+    }
+    return mapping.get(arch.lower(), f"linux/{arch.lower()}" if arch else None)
+
+
+def _parse_ssh_host(host_url: str) -> str:
+    """Strip the ssh:// prefix from a host URL for subprocess use.
+
+    'ssh://root@docker1.example.com' -> 'root@docker1.example.com'
+    """
+    if host_url.startswith("ssh://"):
+        return host_url[len("ssh://"):]
+    return host_url
+
+
+def _get_buildable_images(compose_file: str) -> list[str]:
+    """Get image names for services that have a build section.
+
+    Parses the compose file YAML directly to find services with 'build'
+    and derives image names from compose's naming convention.
+    """
+    import yaml
+
+    path = Path(compose_file)
+    if not path.exists():
+        return []
+
+    data = yaml.safe_load(path.read_text()) or {}
+    services = data.get("services", {})
+    project = path.parent.parent.name  # project dir name
+
+    images = []
+    for svc_name, svc_cfg in services.items():
+        if isinstance(svc_cfg, dict) and "build" in svc_cfg:
+            # Docker compose names images as <project>-<service>
+            images.append(f"{project}-{svc_name}")
+
+    return images
+
+
+def _build_local(compose_file: str, platform: str | None = None,
+                 timeout: int = 600) -> str:
+    """Build images locally, optionally for a different platform.
+
+    Uses docker compose build on the default (local) context.
+    Returns stdout from the build command.
+    """
+    args = ["compose", "-f", compose_file, "build"]
+    if platform:
+        args.extend(["--platform", platform])
+
+    return _run_docker(args, timeout=timeout)
+
+
+def _transfer_images(images: list[str], host_url: str,
+                     timeout: int = 600) -> None:
+    """Transfer Docker images to a remote host via SSH.
+
+    Runs: docker save <images> | ssh <host> docker load
+    """
+    if not images:
+        raise DeployError("No images to transfer.")
+
+    ssh_host = _parse_ssh_host(host_url)
+    cmd = f"docker save {' '.join(images)} | ssh {ssh_host} docker load"
+
+    try:
+        result = subprocess.run(
+            cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise DeployError(
+            f"Image transfer timed out after {timeout}s",
+            command=[cmd], exit_code=-1, stderr="Timeout",
+        )
+
+    if result.returncode != 0:
+        raise DeployError(
+            f"Image transfer failed: {result.stderr.strip()}",
+            command=[cmd], exit_code=result.returncode,
+            stderr=result.stderr.strip(),
+        )
+
+
+def _cleanup_remote(context_name: str) -> dict:
+    """Run docker system prune on the remote to reclaim disk space.
+
+    Returns dict with status and space reclaimed.
+    """
+    try:
+        output = _run_docker([
+            "--context", context_name, "system", "prune", "-f",
+        ], timeout=60)
+        return {"status": "ok", "output": output}
+    except DeployError:
+        return {"status": "skipped", "output": "cleanup failed (non-fatal)"}
+
+
 def load_deploy_config(name: str) -> dict:
     """Load a named deployment config from rundbat.yaml.
 
@@ -94,6 +217,9 @@ def load_deploy_config(name: str) -> dict:
         "docker_context": deploy_cfg["docker_context"],
         "compose_file": deploy_cfg.get("compose_file", "docker/docker-compose.yml"),
         "hostname": deploy_cfg.get("hostname"),
+        "host": deploy_cfg.get("host"),
+        "platform": deploy_cfg.get("platform"),
+        "build_strategy": deploy_cfg.get("build_strategy", "context"),
     }
 
 
@@ -134,28 +260,64 @@ def verify_access(context_name: str) -> dict:
         )
 
 
-def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
-    """Deploy to a named host via Docker context.
+def deploy(name: str, dry_run: bool = False, no_build: bool = False,
+           strategy: str | None = None, platform: str | None = None) -> dict:
+    """Deploy to a named host using the configured build strategy.
 
     Args:
         name: Deployment name from rundbat.yaml (e.g., 'prod', 'dev')
-        dry_run: If True, return the command without executing
-        no_build: If True, skip the --build flag
+        dry_run: If True, return the commands without executing
+        no_build: If True, skip building (context strategy only)
+        strategy: Override the configured build_strategy
+        platform: Override the configured/detected platform
 
-    Returns dict with status, command, and optional hostname.
+    Returns dict with status, commands, and optional hostname.
     """
     deploy_cfg = load_deploy_config(name)
     ctx = deploy_cfg["docker_context"]
     compose_file = deploy_cfg["compose_file"]
     hostname = deploy_cfg.get("hostname")
+    host = deploy_cfg.get("host")
+    build_strategy = strategy or deploy_cfg.get("build_strategy", "context")
+    target_platform = platform or deploy_cfg.get("platform")
+
+    if build_strategy not in VALID_STRATEGIES:
+        raise DeployError(
+            f"Unknown build strategy '{build_strategy}'. "
+            f"Must be one of: {', '.join(VALID_STRATEGIES)}"
+        )
 
     # Verify compose file exists
     if not Path(compose_file).exists():
+        raise DeployError(f"Compose file not found: {compose_file}")
+
+    # Strategy: ssh-transfer requires host
+    if build_strategy == "ssh-transfer" and not host:
         raise DeployError(
-            f"Compose file not found: {compose_file}"
+            f"Strategy 'ssh-transfer' requires a 'host' field in the "
+            f"deployment config. Run: rundbat deploy-init {name} --host ssh://user@host"
         )
 
-    # Build the docker compose command
+    # Strategy: github-actions requires host for SSH pull+restart
+    if build_strategy == "github-actions" and not host:
+        raise DeployError(
+            f"Strategy 'github-actions' requires a 'host' field in the "
+            f"deployment config. Run: rundbat deploy-init {name} --host ssh://user@host"
+        )
+
+    if build_strategy == "context":
+        return _deploy_context(ctx, compose_file, hostname, no_build, dry_run)
+    elif build_strategy == "ssh-transfer":
+        return _deploy_ssh_transfer(
+            ctx, compose_file, hostname, host, target_platform, dry_run,
+        )
+    else:  # github-actions
+        return _deploy_github_actions(ctx, compose_file, hostname, host, dry_run)
+
+
+def _deploy_context(ctx: str, compose_file: str, hostname: str | None,
+                    no_build: bool, dry_run: bool) -> dict:
+    """Deploy using Docker context — build on target, then cleanup."""
     docker_args = [
         "--context", ctx,
         "compose", "-f", compose_file,
@@ -169,6 +331,8 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
     if dry_run:
         result = {
             "status": "dry_run",
+            "strategy": "context",
+            "commands": [cmd_str, f"docker --context {ctx} system prune -f"],
             "command": cmd_str,
             "context": ctx,
             "compose_file": compose_file,
@@ -177,12 +341,103 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
             result["hostname"] = hostname
         return result
 
-    # Execute
     _run_docker(docker_args, timeout=600)
+    cleanup = _cleanup_remote(ctx)
 
     result = {
         "status": "success",
+        "strategy": "context",
         "command": cmd_str,
+        "context": ctx,
+        "compose_file": compose_file,
+        "cleanup": cleanup,
+    }
+    if hostname:
+        result["url"] = f"https://{hostname}/"
+    return result
+
+
+def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
+                         host: str, target_platform: str | None,
+                         dry_run: bool) -> dict:
+    """Deploy by building locally and transferring images via SSH."""
+    images = _get_buildable_images(compose_file)
+    if not images:
+        raise DeployError(
+            f"No buildable services found in {compose_file}. "
+            f"Ensure at least one service has a 'build' section."
+        )
+
+    ssh_host = _parse_ssh_host(host)
+    build_cmd = "docker compose -f " + compose_file + " build"
+    if target_platform:
+        build_cmd += f" --platform {target_platform}"
+    transfer_cmd = f"docker save {' '.join(images)} | ssh {ssh_host} docker load"
+    up_cmd = f"docker --context {ctx} compose -f {compose_file} up -d"
+
+    if dry_run:
+        result = {
+            "status": "dry_run",
+            "strategy": "ssh-transfer",
+            "commands": [build_cmd, transfer_cmd, up_cmd],
+            "command": " && ".join([build_cmd, transfer_cmd, up_cmd]),
+            "context": ctx,
+            "compose_file": compose_file,
+            "platform": target_platform,
+        }
+        if hostname:
+            result["hostname"] = hostname
+        return result
+
+    _build_local(compose_file, target_platform)
+    _transfer_images(images, host)
+    _run_docker(["--context", ctx, "compose", "-f", compose_file, "up", "-d"],
+                timeout=120)
+
+    result = {
+        "status": "success",
+        "strategy": "ssh-transfer",
+        "command": " && ".join([build_cmd, transfer_cmd, up_cmd]),
+        "context": ctx,
+        "compose_file": compose_file,
+        "platform": target_platform,
+        "images_transferred": images,
+    }
+    if hostname:
+        result["url"] = f"https://{hostname}/"
+    return result
+
+
+def _deploy_github_actions(ctx: str, compose_file: str,
+                           hostname: str | None, host: str,
+                           dry_run: bool) -> dict:
+    """Deploy by pulling pre-built images from GHCR."""
+    ssh_host = _parse_ssh_host(host)
+    pull_cmd = f"docker --context {ctx} compose -f {compose_file} pull"
+    up_cmd = f"docker --context {ctx} compose -f {compose_file} up -d"
+
+    if dry_run:
+        result = {
+            "status": "dry_run",
+            "strategy": "github-actions",
+            "commands": [pull_cmd, up_cmd],
+            "command": " && ".join([pull_cmd, up_cmd]),
+            "context": ctx,
+            "compose_file": compose_file,
+        }
+        if hostname:
+            result["hostname"] = hostname
+        return result
+
+    _run_docker(["--context", ctx, "compose", "-f", compose_file, "pull"],
+                timeout=300)
+    _run_docker(["--context", ctx, "compose", "-f", compose_file, "up", "-d"],
+                timeout=120)
+
+    result = {
+        "status": "success",
+        "strategy": "github-actions",
+        "command": " && ".join([pull_cmd, up_cmd]),
         "context": ctx,
         "compose_file": compose_file,
     }
@@ -197,7 +452,8 @@ def _context_name(app_name: str, deploy_name: str) -> str:
 
 
 def init_deployment(name: str, host: str, compose_file: str | None = None,
-                    hostname: str | None = None) -> dict:
+                    hostname: str | None = None,
+                    build_strategy: str | None = None) -> dict:
     """Set up a new deployment target: verify access, create context, save config.
 
     Args:
@@ -205,10 +461,17 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         host: SSH URL (e.g., 'ssh://root@docker1.example.com')
         compose_file: Path to compose file (optional)
         hostname: App hostname for post-deploy message (optional)
+        build_strategy: Build strategy (context, ssh-transfer, github-actions)
 
     Returns dict with status and details.
     """
     from rundbat import config
+
+    if build_strategy and build_strategy not in VALID_STRATEGIES:
+        raise DeployError(
+            f"Unknown build strategy '{build_strategy}'. "
+            f"Must be one of: {', '.join(VALID_STRATEGIES)}"
+        )
 
     cfg = config.load_config()
     app_name = cfg.get("app_name", "app")
@@ -221,9 +484,27 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         create_context(ctx, host)
         verify_access(ctx)
 
+    # Detect remote platform
+    remote_platform = _detect_remote_platform(ctx)
+
+    # Auto-suggest strategy if not provided
+    if not build_strategy:
+        from rundbat.discovery import local_docker_platform
+        local_plat = local_docker_platform()
+        if remote_platform and remote_platform != local_plat:
+            build_strategy = "ssh-transfer"
+        else:
+            build_strategy = "context"
+
     # Save to rundbat.yaml
     deployments = cfg.get("deployments", {})
-    deploy_entry = {"docker_context": ctx}
+    deploy_entry = {
+        "docker_context": ctx,
+        "host": host,
+        "build_strategy": build_strategy,
+    }
+    if remote_platform:
+        deploy_entry["platform"] = remote_platform
     if compose_file:
         deploy_entry["compose_file"] = compose_file
     if hostname:
@@ -237,4 +518,6 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         "deployment": name,
         "context": ctx,
         "host": host,
+        "platform": remote_platform,
+        "build_strategy": build_strategy,
     }

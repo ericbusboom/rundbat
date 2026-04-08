@@ -7,9 +7,14 @@ import yaml
 
 from rundbat.deploy import (
     DeployError,
+    VALID_STRATEGIES,
     load_deploy_config,
     _context_name,
     _context_exists,
+    _detect_remote_platform,
+    _parse_ssh_host,
+    _get_buildable_images,
+    _cleanup_remote,
     create_context,
     verify_access,
     deploy,
@@ -55,6 +60,88 @@ class TestGetCurrentContext:
 
 
 # ---------------------------------------------------------------------------
+# Platform detection
+# ---------------------------------------------------------------------------
+
+class TestDetectRemotePlatform:
+    @patch("rundbat.deploy._run_docker")
+    def test_amd64(self, mock_docker):
+        mock_docker.return_value = "x86_64"
+        assert _detect_remote_platform("myctx") == "linux/amd64"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_arm64(self, mock_docker):
+        mock_docker.return_value = "aarch64"
+        assert _detect_remote_platform("myctx") == "linux/arm64"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_failure_returns_none(self, mock_docker):
+        mock_docker.side_effect = DeployError("cannot connect")
+        assert _detect_remote_platform("myctx") is None
+
+
+class TestParseSSHHost:
+    def test_strips_ssh_prefix(self):
+        assert _parse_ssh_host("ssh://root@host") == "root@host"
+
+    def test_no_prefix(self):
+        assert _parse_ssh_host("root@host") == "root@host"
+
+    def test_with_port(self):
+        assert _parse_ssh_host("ssh://root@host:2222") == "root@host:2222"
+
+
+class TestGetBuildableImages:
+    def test_finds_build_services(self, tmp_path):
+        compose = {
+            "services": {
+                "app": {"build": {"context": ".."}, "ports": ["3000:3000"]},
+                "postgres": {"image": "postgres:16"},
+            }
+        }
+        compose_file = tmp_path / "docker" / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(yaml.dump(compose))
+
+        images = _get_buildable_images(str(compose_file))
+        assert len(images) == 1
+        assert images[0].endswith("-app")
+
+    def test_no_build_services(self, tmp_path):
+        compose = {
+            "services": {
+                "postgres": {"image": "postgres:16"},
+            }
+        }
+        compose_file = tmp_path / "docker" / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(yaml.dump(compose))
+
+        assert _get_buildable_images(str(compose_file)) == []
+
+    def test_missing_file(self):
+        assert _get_buildable_images("/nonexistent/compose.yml") == []
+
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+
+class TestCleanupRemote:
+    @patch("rundbat.deploy._run_docker")
+    def test_success(self, mock_docker):
+        mock_docker.return_value = "Total reclaimed space: 500MB"
+        result = _cleanup_remote("myctx")
+        assert result["status"] == "ok"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_failure_non_fatal(self, mock_docker):
+        mock_docker.side_effect = DeployError("prune failed")
+        result = _cleanup_remote("myctx")
+        assert result["status"] == "skipped"
+
+
+# ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
 
@@ -70,6 +157,9 @@ class TestLoadDeployConfig:
                     "docker_context": "myapp-prod",
                     "compose_file": "docker/docker-compose.prod.yml",
                     "hostname": "app.example.com",
+                    "host": "ssh://root@host",
+                    "platform": "linux/amd64",
+                    "build_strategy": "ssh-transfer",
                 },
             },
         }))
@@ -78,6 +168,25 @@ class TestLoadDeployConfig:
         assert result["docker_context"] == "myapp-prod"
         assert result["compose_file"] == "docker/docker-compose.prod.yml"
         assert result["hostname"] == "app.example.com"
+        assert result["host"] == "ssh://root@host"
+        assert result["platform"] == "linux/amd64"
+        assert result["build_strategy"] == "ssh-transfer"
+
+    def test_default_strategy(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {"docker_context": "myapp-prod"},
+            },
+        }))
+
+        result = load_deploy_config("prod")
+        assert result["build_strategy"] == "context"
+        assert result["host"] is None
+        assert result["platform"] is None
 
     def test_default_compose_file(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -186,22 +295,24 @@ class TestVerifyAccess:
 
 
 # ---------------------------------------------------------------------------
-# Deploy
+# Deploy — context strategy
 # ---------------------------------------------------------------------------
 
-class TestDeploy:
-    def _setup_config(self, tmp_path):
+class TestDeployContext:
+    def _setup_config(self, tmp_path, strategy="context", host=None):
         config_dir = tmp_path / "config"
         config_dir.mkdir()
+        deploy_cfg = {
+            "docker_context": "myapp-prod",
+            "compose_file": "docker/docker-compose.prod.yml",
+            "hostname": "app.example.com",
+            "build_strategy": strategy,
+        }
+        if host:
+            deploy_cfg["host"] = host
         (config_dir / "rundbat.yaml").write_text(yaml.dump({
             "app_name": "myapp",
-            "deployments": {
-                "prod": {
-                    "docker_context": "myapp-prod",
-                    "compose_file": "docker/docker-compose.prod.yml",
-                    "hostname": "app.example.com",
-                },
-            },
+            "deployments": {"prod": deploy_cfg},
         }))
         docker_dir = tmp_path / "docker"
         docker_dir.mkdir()
@@ -214,6 +325,7 @@ class TestDeploy:
 
         result = deploy("prod", dry_run=True)
         assert result["status"] == "dry_run"
+        assert result["strategy"] == "context"
         assert "--context" in result["command"]
         assert "myapp-prod" in result["command"]
         assert "--build" in result["command"]
@@ -228,19 +340,20 @@ class TestDeploy:
         result = deploy("prod", dry_run=True, no_build=True)
         assert "--build" not in result["command"]
 
+    @patch("rundbat.deploy._cleanup_remote")
     @patch("rundbat.deploy._run_docker")
-    def test_deploy_success(self, mock_docker, tmp_path, monkeypatch):
+    def test_deploy_success(self, mock_docker, mock_cleanup, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         self._setup_config(tmp_path)
         mock_docker.return_value = ""
+        mock_cleanup.return_value = {"status": "ok", "output": ""}
 
         result = deploy("prod")
         assert result["status"] == "success"
+        assert result["strategy"] == "context"
         assert result["url"] == "https://app.example.com/"
         mock_docker.assert_called_once()
-        call_args = mock_docker.call_args[0][0]
-        assert "--context" in call_args
-        assert "--build" in call_args
+        mock_cleanup.assert_called_once_with("myapp-prod")
 
     def test_missing_compose_file(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -259,17 +372,203 @@ class TestDeploy:
         with pytest.raises(DeployError, match="Compose file not found"):
             deploy("prod")
 
+    def test_invalid_strategy(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+
+        with pytest.raises(DeployError, match="Unknown build strategy"):
+            deploy("prod", strategy="teleport")
+
+
+# ---------------------------------------------------------------------------
+# Deploy — ssh-transfer strategy
+# ---------------------------------------------------------------------------
+
+class TestDeploySSHTransfer:
+    def _setup_config(self, tmp_path):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "myapp-prod",
+                    "compose_file": "docker/docker-compose.prod.yml",
+                    "hostname": "app.example.com",
+                    "host": "ssh://root@docker1.example.com",
+                    "platform": "linux/amd64",
+                    "build_strategy": "ssh-transfer",
+                },
+            },
+        }))
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir()
+        compose = {
+            "services": {
+                "app": {"build": {"context": ".."}, "ports": ["3000:3000"]},
+                "postgres": {"image": "postgres:16"},
+            }
+        }
+        (docker_dir / "docker-compose.prod.yml").write_text(yaml.dump(compose))
+
+    @patch("rundbat.deploy._run_docker")
+    def test_dry_run(self, mock_docker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+
+        result = deploy("prod", dry_run=True)
+        assert result["status"] == "dry_run"
+        assert result["strategy"] == "ssh-transfer"
+        assert result["platform"] == "linux/amd64"
+        assert len(result["commands"]) == 3
+        assert "--platform linux/amd64" in result["commands"][0]
+        assert "docker save" in result["commands"][1]
+        assert "ssh root@docker1.example.com" in result["commands"][1]
+        mock_docker.assert_not_called()
+
+    @patch("rundbat.deploy._transfer_images")
+    @patch("rundbat.deploy._build_local")
+    @patch("rundbat.deploy._run_docker")
+    def test_deploy_success(self, mock_docker, mock_build, mock_transfer,
+                            tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+        mock_docker.return_value = ""
+        mock_build.return_value = ""
+
+        result = deploy("prod")
+        assert result["status"] == "success"
+        assert result["strategy"] == "ssh-transfer"
+        assert result["platform"] == "linux/amd64"
+        assert len(result["images_transferred"]) > 0
+
+        mock_build.assert_called_once_with(
+            "docker/docker-compose.prod.yml", "linux/amd64",
+        )
+        mock_transfer.assert_called_once()
+
+    def test_missing_host(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "myapp-prod",
+                    "compose_file": "docker/docker-compose.prod.yml",
+                    "build_strategy": "ssh-transfer",
+                },
+            },
+        }))
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir()
+        (docker_dir / "docker-compose.prod.yml").write_text("version: '3'\n")
+
+        with pytest.raises(DeployError, match="requires a 'host' field"):
+            deploy("prod")
+
+
+# ---------------------------------------------------------------------------
+# Deploy — github-actions strategy
+# ---------------------------------------------------------------------------
+
+class TestDeployGitHubActions:
+    def _setup_config(self, tmp_path):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "myapp-prod",
+                    "compose_file": "docker/docker-compose.prod.yml",
+                    "hostname": "app.example.com",
+                    "host": "ssh://root@docker1.example.com",
+                    "build_strategy": "github-actions",
+                },
+            },
+        }))
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir()
+        (docker_dir / "docker-compose.prod.yml").write_text("version: '3'\n")
+
+    @patch("rundbat.deploy._run_docker")
+    def test_dry_run(self, mock_docker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+
+        result = deploy("prod", dry_run=True)
+        assert result["status"] == "dry_run"
+        assert result["strategy"] == "github-actions"
+        assert len(result["commands"]) == 2
+        assert "pull" in result["commands"][0]
+        assert "up -d" in result["commands"][1]
+        mock_docker.assert_not_called()
+
+    @patch("rundbat.deploy._run_docker")
+    def test_deploy_success(self, mock_docker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+        mock_docker.return_value = ""
+
+        result = deploy("prod")
+        assert result["status"] == "success"
+        assert result["strategy"] == "github-actions"
+        assert result["url"] == "https://app.example.com/"
+        assert mock_docker.call_count == 2  # pull + up
+
+
+# ---------------------------------------------------------------------------
+# Deploy — strategy override
+# ---------------------------------------------------------------------------
+
+class TestDeployStrategyOverride:
+    def _setup_config(self, tmp_path):
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "myapp-prod",
+                    "compose_file": "docker/docker-compose.prod.yml",
+                    "host": "ssh://root@host",
+                    "build_strategy": "context",
+                },
+            },
+        }))
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir()
+        compose = {
+            "services": {
+                "app": {"build": {"context": ".."}, "ports": ["3000:3000"]},
+            }
+        }
+        (docker_dir / "docker-compose.prod.yml").write_text(yaml.dump(compose))
+
+    @patch("rundbat.deploy._run_docker")
+    def test_override_to_ssh_transfer(self, mock_docker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        self._setup_config(tmp_path)
+
+        result = deploy("prod", dry_run=True, strategy="ssh-transfer",
+                        platform="linux/amd64")
+        assert result["strategy"] == "ssh-transfer"
+        assert result["platform"] == "linux/amd64"
+
 
 # ---------------------------------------------------------------------------
 # Init deployment
 # ---------------------------------------------------------------------------
 
 class TestInitDeployment:
+    @patch("rundbat.deploy._detect_remote_platform")
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy.create_context")
     @patch("rundbat.deploy._context_exists")
     def test_creates_new(self, mock_exists, mock_create, mock_verify,
-                         tmp_path, monkeypatch):
+                         mock_platform, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -281,23 +580,31 @@ class TestInitDeployment:
         mock_exists.return_value = False
         mock_create.return_value = "myapp-prod"
         mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/amd64"
 
         result = init_deployment("prod", "ssh://root@host",
                                  compose_file="docker/prod.yml",
                                  hostname="app.example.com")
         assert result["status"] == "ok"
         assert result["context"] == "myapp-prod"
+        assert result["host"] == "ssh://root@host"
+        assert result["platform"] == "linux/amd64"
+        assert result["build_strategy"] in VALID_STRATEGIES
 
-        # Verify config was saved with docker_context
+        # Verify config was saved with new fields
         saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
         assert saved["deployments"]["prod"]["docker_context"] == "myapp-prod"
         assert saved["deployments"]["prod"]["compose_file"] == "docker/prod.yml"
         assert saved["deployments"]["prod"]["hostname"] == "app.example.com"
+        assert saved["deployments"]["prod"]["host"] == "ssh://root@host"
+        assert saved["deployments"]["prod"]["platform"] == "linux/amd64"
+        assert saved["deployments"]["prod"]["build_strategy"] in VALID_STRATEGIES
 
+    @patch("rundbat.deploy._detect_remote_platform")
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy._context_exists")
     def test_existing_context(self, mock_exists, mock_verify,
-                              tmp_path, monkeypatch):
+                              mock_platform, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -308,6 +615,73 @@ class TestInitDeployment:
 
         mock_exists.return_value = True
         mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/arm64"
 
         result = init_deployment("prod", "ssh://root@host")
         assert result["status"] == "ok"
+
+    @patch("rundbat.deploy._detect_remote_platform")
+    @patch("rundbat.deploy.verify_access")
+    @patch("rundbat.deploy.create_context")
+    @patch("rundbat.deploy._context_exists")
+    def test_explicit_strategy(self, mock_exists, mock_create, mock_verify,
+                               mock_platform, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "notes": [],
+        }))
+
+        mock_exists.return_value = False
+        mock_create.return_value = "myapp-prod"
+        mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/amd64"
+
+        result = init_deployment("prod", "ssh://root@host",
+                                 build_strategy="github-actions")
+        assert result["build_strategy"] == "github-actions"
+
+        saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
+        assert saved["deployments"]["prod"]["build_strategy"] == "github-actions"
+
+    def test_invalid_strategy(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "notes": [],
+        }))
+
+        with pytest.raises(DeployError, match="Unknown build strategy"):
+            init_deployment("prod", "ssh://root@host",
+                            build_strategy="teleport")
+
+    @patch("rundbat.deploy._detect_remote_platform")
+    @patch("rundbat.deploy.verify_access")
+    @patch("rundbat.deploy.create_context")
+    @patch("rundbat.deploy._context_exists")
+    def test_auto_selects_ssh_transfer_cross_arch(
+        self, mock_exists, mock_create, mock_verify,
+        mock_platform, tmp_path, monkeypatch,
+    ):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "notes": [],
+        }))
+
+        mock_exists.return_value = False
+        mock_create.return_value = "myapp-prod"
+        mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/amd64"
+
+        with patch("rundbat.discovery.local_docker_platform",
+                   return_value="linux/arm64"):
+            result = init_deployment("prod", "ssh://root@host")
+
+        assert result["build_strategy"] == "ssh-transfer"

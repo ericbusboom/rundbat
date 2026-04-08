@@ -178,13 +178,15 @@ def cmd_init(args):
 
 
 def cmd_deploy(args):
-    """Deploy to a named remote host via Docker context."""
+    """Deploy using the configured build strategy."""
     from rundbat import deploy
     from rundbat.deploy import DeployError
 
     try:
-        result = deploy.deploy(args.name, dry_run=args.dry_run,
-                               no_build=args.no_build)
+        result = deploy.deploy(
+            args.name, dry_run=args.dry_run, no_build=args.no_build,
+            strategy=args.strategy, platform=args.platform,
+        )
     except DeployError as e:
         _error(str(e), args.json)
         return
@@ -192,10 +194,17 @@ def cmd_deploy(args):
     if args.json:
         _output(result, args.json)
     else:
+        strategy = result.get("strategy", "context")
         if result.get("status") == "dry_run":
-            print(f"Dry run — would execute:\n  {result['command']}")
+            print(f"Dry run (strategy: {strategy}) — would execute:")
+            for cmd in result.get("commands", [result.get("command", "")]):
+                print(f"  {cmd}")
         else:
-            print(f"Deployed via context '{result['context']}'")
+            print(f"Deployed via strategy '{strategy}', context '{result['context']}'")
+            if result.get("platform"):
+                print(f"  Platform: {result['platform']}")
+            if result.get("images_transferred"):
+                print(f"  Images transferred: {', '.join(result['images_transferred'])}")
             if result.get("url"):
                 print(f"  {result['url']}")
 
@@ -210,6 +219,7 @@ def cmd_deploy_init(args):
             args.name, args.host,
             compose_file=args.compose_file,
             hostname=args.hostname,
+            build_strategy=args.strategy,
         )
     except DeployError as e:
         _error(str(e), args.json)
@@ -221,6 +231,13 @@ def cmd_deploy_init(args):
         print(f"Deployment '{result['deployment']}' configured.")
         print(f"  Docker context: {result['context']}")
         print(f"  Host: {result['host']}")
+        print(f"  Build strategy: {result['build_strategy']}")
+        if result.get("platform"):
+            from rundbat.discovery import local_docker_platform
+            local_plat = local_docker_platform()
+            print(f"  Remote platform: {result['platform']} (local: {local_plat})")
+            if result["platform"] != local_plat:
+                print(f"  Cross-architecture: yes — images will be built for {result['platform']}")
         print(f"\nRun 'rundbat deploy {result['deployment']}' to deploy.")
 
 
@@ -328,7 +345,16 @@ Commands:
     )
     deploy_parser.add_argument(
         "--no-build", action="store_true", default=False,
-        help="Skip the --build flag (don't rebuild images)",
+        help="Skip the --build flag (context strategy only)",
+    )
+    deploy_parser.add_argument(
+        "--strategy", default=None,
+        choices=["context", "ssh-transfer", "github-actions"],
+        help="Override the configured build strategy",
+    )
+    deploy_parser.add_argument(
+        "--platform", default=None,
+        help="Override the target platform (e.g., linux/amd64)",
     )
     _add_json_flag(deploy_parser)
     deploy_parser.set_defaults(func=cmd_deploy)
@@ -351,6 +377,11 @@ Commands:
     deploy_init_parser.add_argument(
         "--hostname",
         help="App hostname for post-deploy message (e.g., app.example.com)",
+    )
+    deploy_init_parser.add_argument(
+        "--strategy", default=None,
+        choices=["context", "ssh-transfer", "github-actions"],
+        help="Build strategy for this deployment",
     )
     _add_json_flag(deploy_init_parser)
     deploy_init_parser.set_defaults(func=cmd_deploy_init)
