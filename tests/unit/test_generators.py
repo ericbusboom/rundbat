@@ -166,8 +166,16 @@ class TestGenerateJustfile:
         assert "build:" in jf
         assert "up:" in jf
         assert "down:" in jf
-        assert "deploy:" in jf
         assert "logs" in jf
+
+    def test_deploy_recipe(self):
+        jf = generate_justfile("myapp")
+        assert 'deploy env="prod":' in jf
+        assert "rundbat deploy {{env}}" in jf
+
+    def test_no_push_recipe(self):
+        jf = generate_justfile("myapp")
+        assert "push:" not in jf
 
     def test_postgres_recipes(self):
         services = [{"type": "postgres"}]
@@ -226,6 +234,14 @@ class TestInitDocker:
         assert (tmp_path / "docker" / "docker-compose.yml").exists()
         assert (tmp_path / "docker" / "Justfile").exists()
         assert (tmp_path / "docker" / ".env.example").exists()
+        assert (tmp_path / ".dockerignore").exists()
+        assert ".dockerignore" in result["files"]
+
+    def test_dockerignore_not_overwritten(self, tmp_path):
+        existing = "# custom\n"
+        (tmp_path / ".dockerignore").write_text(existing)
+        init_docker(tmp_path, "testapp")
+        assert (tmp_path / ".dockerignore").read_text() == existing
 
     def test_with_services(self, tmp_path):
         services = [{"type": "postgres", "version": "16"}]

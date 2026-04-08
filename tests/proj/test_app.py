@@ -1,14 +1,13 @@
-import json
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock external dependencies before importing app
-MOCK_CONFIG = {
-    "DATABASE_URL": "postgresql://test:test@localhost:5432/testdb",
-    "REDIS_URL": "redis://localhost:6379/0",
-}
+# Mock dotconfig .env output
+MOCK_CONFIG_OUTPUT = (
+    "DATABASE_URL=postgresql://test:test@localhost:5432/testdb\n"
+    "REDIS_URL=redis://localhost:6379/0\n"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +21,7 @@ def _mock_externals(monkeypatch):
 
 def _import_app(mock_subprocess, mock_psycopg2=None, mock_redis=None):
     """Import app with mocked externals."""
-    mock_subprocess.return_value.stdout = json.dumps(MOCK_CONFIG)
+    mock_subprocess.return_value.stdout = MOCK_CONFIG_OUTPUT
     mock_subprocess.return_value.returncode = 0
 
     if mock_psycopg2 is None:

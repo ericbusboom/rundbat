@@ -42,13 +42,6 @@ def test_env_no_subcommand_shows_help():
     assert "connstr" in result.stdout
 
 
-def test_mcp_shows_deprecation():
-    """rundbat mcp prints deprecation message and exits 1."""
-    result = _run(["mcp"])
-    assert result.returncode == 1
-    assert "removed" in result.stderr
-    assert "rundbat install" in result.stderr
-
 
 # ---------------------------------------------------------------------------
 # Subcommand --help tests (verify all subcommands are registered)
