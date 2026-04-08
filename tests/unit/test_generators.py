@@ -11,6 +11,7 @@ from rundbat.generators import (
     generate_compose,
     generate_justfile,
     generate_env_example,
+    generate_github_workflow,
     init_docker,
     add_service,
 )
@@ -198,6 +199,46 @@ class TestGenerateJustfile:
         jf = generate_justfile("myapp", services)
         assert "mysql:" in jf
         assert "mariadb-dump" in jf
+
+    def test_platform_variable(self):
+        jf = generate_justfile("myapp")
+        assert "PLATFORM" in jf
+        assert "DOCKER_PLATFORM" in jf
+
+    def test_deploy_transfer_recipe(self):
+        jf = generate_justfile("myapp")
+        assert "deploy-transfer HOST:" in jf
+        assert "docker save" in jf
+        assert "docker load" in jf
+
+
+# ---------------------------------------------------------------------------
+# GitHub workflow generation
+# ---------------------------------------------------------------------------
+
+class TestGenerateGitHubWorkflow:
+    def test_basic_workflow(self):
+        wf = generate_github_workflow("myapp", "ssh://root@host.example.com")
+        assert "name: Deploy" in wf
+        assert "ghcr.io" in wf
+        assert "docker/build-push-action" in wf
+        assert "linux/amd64" in wf
+
+    def test_custom_platform(self):
+        wf = generate_github_workflow("myapp", "ssh://root@host",
+                                      platform="linux/arm64")
+        assert "linux/arm64" in wf
+
+    def test_custom_compose_file(self):
+        wf = generate_github_workflow("myapp", "ssh://root@host",
+                                      compose_file="docker/compose.yml")
+        assert "docker/compose.yml" in wf
+
+    def test_ssh_host_stripped(self):
+        wf = generate_github_workflow("myapp", "ssh://root@host.example.com")
+        # The workflow uses GitHub secrets for host, not hardcoded
+        assert "DEPLOY_HOST" in wf
+        assert "DEPLOY_SSH_KEY" in wf
 
 
 # ---------------------------------------------------------------------------

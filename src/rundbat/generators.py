@@ -300,9 +300,12 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         f"# Docker context for target environment",
         f"CTX := {ctx_expr}",
         "",
+        "# Target platform for cross-architecture builds (e.g., linux/amd64)",
+        'PLATFORM := env("DOCKER_PLATFORM", "")',
+        "",
         "# Build the app image",
         "build:",
-        f"    {docker} compose -f docker/docker-compose.yml build",
+        f'    {docker} compose -f docker/docker-compose.yml build {{{{ if PLATFORM != "" {{ "--platform " + PLATFORM }} else {{ "" }} }}}}',
         "",
         "# Start all services",
         "up:",
@@ -323,8 +326,14 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         "# Rebuild and restart",
         "restart: build up",
         "",
-        "# Deploy (build + start on target environment)",
+        "# Deploy via context (build + start on target environment)",
         'deploy: build up',
+        "",
+        "# Deploy via SSH transfer (build locally, send to remote, start)",
+        "deploy-transfer HOST:",
+        f'    docker compose -f docker/docker-compose.yml build {{{{ if PLATFORM != "" {{ "--platform " + PLATFORM }} else {{ "" }} }}}}',
+        f"    docker save $(docker compose -f docker/docker-compose.yml config --images) | ssh {{{{HOST}}}} docker load",
+        f"    {docker} compose -f docker/docker-compose.yml up -d",
         "",
     ]
 
@@ -473,6 +482,87 @@ htmlcov/
 def generate_dockerignore() -> str:
     """Return the content of a .dockerignore file for the project root."""
     return _DOCKERIGNORE_CONTENT
+
+
+# ---------------------------------------------------------------------------
+# GitHub Actions workflow generation
+# ---------------------------------------------------------------------------
+
+def generate_github_workflow(
+    app_name: str,
+    host: str,
+    compose_file: str = "docker/docker-compose.prod.yml",
+    platform: str = "linux/amd64",
+) -> str:
+    """Generate a GitHub Actions workflow for GHCR build + deploy.
+
+    The workflow:
+    1. Builds the Docker image with the target platform
+    2. Pushes to GHCR (uses built-in GITHUB_TOKEN — zero config)
+    3. SSHes into the remote to pull and restart
+
+    For public repos, GHCR pull needs no auth. For private repos,
+    a GHCR_TOKEN secret must be added to the remote's environment.
+    """
+    # Strip ssh:// prefix for SSH action
+    ssh_host = host
+    if ssh_host.startswith("ssh://"):
+        ssh_host = ssh_host[len("ssh://"):]
+
+    return f"""\
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{{{ github.repository }}}}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{{{ github.actor }}}}
+          password: ${{{{ secrets.GITHUB_TOKEN }}}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          platforms: {platform}
+          tags: |
+            ${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:latest
+            ${{{{ env.REGISTRY }}}}/${{{{ env.IMAGE_NAME }}}}:${{{{ github.sha }}}}
+
+      - name: Deploy to remote
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{{{ secrets.DEPLOY_HOST }}}}
+          username: ${{{{ secrets.DEPLOY_USER }}}}
+          key: ${{{{ secrets.DEPLOY_SSH_KEY }}}}
+          script: |
+            cd /opt/{app_name}
+            docker compose -f {compose_file} pull
+            docker compose -f {compose_file} up -d
+"""
 
 
 # ---------------------------------------------------------------------------
