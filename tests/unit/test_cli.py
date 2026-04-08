@@ -1,6 +1,5 @@
 """Tests for the CLI entry point."""
 
-import json
 import subprocess
 import sys
 
@@ -29,133 +28,60 @@ def test_no_args_shows_help():
     """rundbat with no args shows help and exits 0."""
     result = _run([])
     assert result.returncode == 0
-    assert "discover" in result.stdout
-    assert "create-env" in result.stdout
-    assert "install" in result.stdout
+    assert "init" in result.stdout
+    assert "deploy" in result.stdout
+    assert "init-docker" in result.stdout
 
 
-def test_env_no_subcommand_shows_help():
-    """rundbat env with no subcommand shows env help."""
-    result = _run(["env"])
+def test_only_four_commands():
+    """rundbat should only have 4 subcommands."""
+    result = _run(["--help"])
     assert result.returncode == 0
-    assert "list" in result.stdout
-    assert "connstr" in result.stdout
-
+    # These should be present
+    assert "init" in result.stdout
+    assert "init-docker" in result.stdout
+    assert "deploy" in result.stdout
+    assert "deploy-init" in result.stdout
+    # These should be gone
+    assert "discover" not in result.stdout
+    assert "create-env" not in result.stdout
+    assert "start" not in result.stdout
+    assert "health" not in result.stdout
+    assert "validate" not in result.stdout
+    assert "set-secret" not in result.stdout
+    assert "check-drift" not in result.stdout
+    assert "add-service" not in result.stdout
+    assert "uninstall" not in result.stdout
 
 
 # ---------------------------------------------------------------------------
-# Subcommand --help tests (verify all subcommands are registered)
+# Subcommand --help tests
 # ---------------------------------------------------------------------------
 
 class TestSubcommandHelp:
     """Every subcommand should respond to --help with exit code 0."""
 
-    def test_discover_help(self):
-        result = _run(["discover", "--help"])
+    def test_init_help(self):
+        result = _run(["init", "--help"])
+        assert result.returncode == 0
+        assert "--app-name" in result.stdout
+        assert "--force" in result.stdout
+
+    def test_init_docker_help(self):
+        result = _run(["init-docker", "--help"])
         assert result.returncode == 0
         assert "--json" in result.stdout
 
-    def test_create_env_help(self):
-        result = _run(["create-env", "--help"])
+    def test_deploy_help(self):
+        result = _run(["deploy", "--help"])
         assert result.returncode == 0
-        assert "env" in result.stdout
-
-    def test_get_config_help(self):
-        result = _run(["get-config", "--help"])
-        assert result.returncode == 0
+        assert "--dry-run" in result.stdout
+        assert "--no-build" in result.stdout
         assert "--json" in result.stdout
 
-    def test_start_help(self):
-        result = _run(["start", "--help"])
+    def test_deploy_init_help(self):
+        result = _run(["deploy-init", "--help"])
         assert result.returncode == 0
-
-    def test_stop_help(self):
-        result = _run(["stop", "--help"])
-        assert result.returncode == 0
-
-    def test_health_help(self):
-        result = _run(["health", "--help"])
-        assert result.returncode == 0
-
-    def test_validate_help(self):
-        result = _run(["validate", "--help"])
-        assert result.returncode == 0
-
-    def test_set_secret_help(self):
-        result = _run(["set-secret", "--help"])
-        assert result.returncode == 0
-        assert "KEY=VALUE" in result.stdout
-
-    def test_check_drift_help(self):
-        result = _run(["check-drift", "--help"])
-        assert result.returncode == 0
-
-    def test_install_help(self):
-        result = _run(["install", "--help"])
-        assert result.returncode == 0
-        assert "--json" in result.stdout
-
-    def test_uninstall_help(self):
-        result = _run(["uninstall", "--help"])
-        assert result.returncode == 0
-
-
-# ---------------------------------------------------------------------------
-# Subcommand --json output tests
-# ---------------------------------------------------------------------------
-
-class TestJsonOutput:
-    """Subcommands with --json should produce valid JSON."""
-
-    def test_discover_json(self):
-        result = _run(["discover", "--json"])
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert "os" in data
-        assert "docker" in data
-
-    def test_check_drift_json(self):
-        """check-drift works with the current project's rundbat.yaml."""
-        result = _run(["check-drift", "--json"])
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert "drift" in data
-
-    def test_install_json(self, tmp_path, monkeypatch):
-        """rundbat install --json produces valid JSON."""
-        monkeypatch.chdir(tmp_path)
-        result = _run(["install", "--json"])
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert "installed" in data
-
-    def test_uninstall_no_manifest_json(self, tmp_path, monkeypatch):
-        """rundbat uninstall --json with no manifest returns warning."""
-        monkeypatch.chdir(tmp_path)
-        result = _run(["uninstall", "--json"])
-        assert result.returncode == 0
-        data = json.loads(result.stdout)
-        assert "warning" in data
-
-
-# ---------------------------------------------------------------------------
-# Error handling tests
-# ---------------------------------------------------------------------------
-
-class TestErrorHandling:
-    """CLI commands should return exit code 1 on errors."""
-
-    def test_create_env_no_args(self):
-        """create-env without env name should error."""
-        result = _run(["create-env"])
-        assert result.returncode == 2  # usage error
-
-    def test_start_no_args(self):
-        result = _run(["start"])
-        assert result.returncode == 2
-
-    def test_set_secret_bad_format(self, tmp_path, monkeypatch):
-        """set-secret with no = in the value should error."""
-        monkeypatch.chdir(tmp_path)
-        result = _run(["set-secret", "dev", "NOEQUALS"])
-        assert result.returncode == 1
+        assert "--host" in result.stdout
+        assert "--compose-file" in result.stdout
+        assert "--hostname" in result.stdout

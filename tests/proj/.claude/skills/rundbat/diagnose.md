@@ -8,49 +8,43 @@ container state, and report issues with specific remediation steps.
 - "My container won't start"
 - "I can't connect to the database"
 - "Something is wrong with my deployment"
-- "Why isn't this working?"
 
 ## Steps
 
-1. **Check system prerequisites:**
+1. **Check Docker is running:**
    ```bash
-   rundbat discover --json
+   docker info
    ```
-   Verify: Docker installed and running, dotconfig initialized.
 
-2. **Validate the environment:**
+2. **Check container status:**
    ```bash
-   rundbat validate <env> --json
+   docker compose -f docker/docker-compose.yml ps
    ```
-   This checks: config exists, secrets present, container running,
-   database reachable. Each check reports ok/failed with detail.
 
-3. **If validation fails, dig deeper:**
-
-   - **Config missing?** → `rundbat init` or `rundbat create-env <env>`
-   - **Secrets missing?** → Check `dotconfig load -d <env> --json -S`
-     for DATABASE_URL. May need `rundbat set-secret`.
-   - **Container not running?** → `rundbat start <env>` to restart.
-     If missing, `rundbat create-env <env>` to recreate.
-   - **Database unreachable?** → Check port conflicts:
-     ```bash
-     docker inspect <container> --format '{{json .NetworkSettings.Ports}}'
-     ```
-
-4. **Check for drift:**
+3. **Check logs for errors:**
    ```bash
-   rundbat check-drift --json
+   docker compose -f docker/docker-compose.yml logs --tail 50
    ```
-   App name at source (package.json) may differ from stored name.
 
-5. **Report findings** with specific commands the developer should run.
+4. **Check config is correct:**
+   ```bash
+   dotconfig load -d <env> --json --flat -S
+   ```
+   Verify DATABASE_URL, ports, and service names match compose config.
+
+5. **Check port conflicts:**
+   ```bash
+   docker inspect <container> --format '{{json .NetworkSettings.Ports}}'
+   ```
+
+6. **Report findings** with specific commands the developer should run.
 
 ## Common issues
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| "Container not found" | Never created or was removed | `rundbat create-env <env>` |
-| "Connection refused" | Container stopped | `rundbat start <env>` |
-| "Port already in use" | Conflicting service | Stop conflicting service or `rundbat create-env <env>` (auto-allocates new port) |
-| "SOPS decryption failed" | Missing age key | Run `dotconfig keys` to check key status |
-| "Config file not found" | Not initialized | `rundbat init` |
+| Container not running | Stopped or crashed | `docker compose up -d` |
+| Connection refused | Wrong port or container down | Check compose ports, restart |
+| SOPS decryption failed | Missing age key | `dotconfig keys` |
+| Config not found | Not initialized | `rundbat init` |
+| No Docker artifacts | Missing docker/ dir | `rundbat init-docker` |

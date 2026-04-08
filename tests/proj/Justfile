@@ -2,49 +2,28 @@
 
 set dotenv-load
 
-REMOTE_HOST := "root@docker1.apps1.jointheleague.org"
-IMAGE       := "proj-counter:latest"
+compose := "docker compose -f docker/docker-compose.yml"
 
 # Start databases only (dev: Flask runs on host)
 dev:
-    docker compose -f docker/docker-compose.yml up -d
+    {{compose}} up -d
 
-# Build the app image
-build:
-    docker compose -f docker/docker-compose.yml --profile test build
+# Start all services in local Docker (test)
+test:
+    {{compose}} --profile test up -d --build
 
-# Start all services including Flask container (test)
-test: build
-    docker compose -f docker/docker-compose.yml --profile test up -d
-
-# Stop all services
+# Stop services
 down:
-    docker compose -f docker/docker-compose.yml --profile test down
+    {{compose}} --profile test down
 
 # Stop and remove volumes (destructive)
 down-with-data:
-    docker compose -f docker/docker-compose.yml --profile test down -v
+    {{compose}} --profile test down -v
 
 # View logs
 logs *ARGS:
-    docker compose -f docker/docker-compose.yml --profile test logs {{ARGS}}
+    {{compose}} --profile test logs {{ARGS}}
 
-# Rebuild and restart (test)
-restart: build test
-
-# Build amd64 image, transfer to remote, and deploy
+# Deploy to production (remote)
 deploy:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    KEY=$(mktemp)
-    trap "rm -f $KEY" EXIT
-    dotconfig load -d prod --file proj-deploy-key --stdout > "$KEY"
-    chmod 600 "$KEY"
-    echo "Building linux/amd64 image..."
-    docker build --platform linux/amd64 -t {{IMAGE}} -f docker/Dockerfile .
-    echo "Transferring image to remote..."
-    docker save {{IMAGE}} | ssh -i "$KEY" {{REMOTE_HOST}} "docker load"
-    echo "Deploying..."
-    scp -i "$KEY" docker/docker-compose.prod.yml {{REMOTE_HOST}}:/opt/proj/docker-compose.yml
-    ssh -i "$KEY" {{REMOTE_HOST}} "cd /opt/proj && docker compose up -d"
-    echo "Deployed to https://rundbat.apps1.jointheleague.org/"
+    rundbat deploy prod

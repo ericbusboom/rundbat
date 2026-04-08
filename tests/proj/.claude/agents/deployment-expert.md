@@ -7,68 +7,74 @@ Node.js and Python web applications.
 ## Capabilities
 
 - Detect project type (Node/Express/Next, Python/Flask/Django/FastAPI)
-- Provision local dev databases (Postgres, MariaDB, Redis)
 - Generate Docker Compose configurations with service dependencies
-- Configure remote Docker hosts via SSH or Docker contexts
+- Deploy to remote Docker hosts via Docker contexts
 - Manage secrets securely through dotconfig
 - Diagnose container and connectivity issues
 
-## How to read config
+## rundbat CLI commands
 
-Always read the environment config before making decisions:
+rundbat has 4 commands. Use these for structured operations:
 
 ```bash
-# Flat dict — all public + secret vars merged
+rundbat init                          # Set up rundbat in a project
+rundbat init-docker                   # Generate Dockerfile, compose, Justfile
+rundbat deploy <name>                 # Deploy to a named remote host
+rundbat deploy-init <name> --host URL # Set up a new deploy target
+```
+
+All commands except `init` support `--json` for structured output.
+
+## Docker and compose operations
+
+For container lifecycle, use docker compose directly:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d      # Start services
+docker compose -f docker/docker-compose.yml down        # Stop services
+docker compose -f docker/docker-compose.yml ps          # Check status
+docker compose -f docker/docker-compose.yml logs        # View logs
+```
+
+## Configuration access
+
+Read config through dotconfig, not by reading files directly:
+
+```bash
+# All config merged (most common)
 dotconfig load -d <env> --json --flat -S
 
-# Sectioned — see what's public vs secret
+# Sectioned (to see public vs secret)
 dotconfig load -d <env> --json -S
 
 # Project config (app name, services, deployments)
 dotconfig load -d <env> --file rundbat.yaml -S
 ```
 
-## How to execute operations
+## Secret management
 
-Use `rundbat` CLI commands. All support `--json` for structured output:
-
-```bash
-rundbat discover --json           # System prerequisites
-rundbat create-env dev --json     # Provision environment
-rundbat get-config dev --json     # Connection string + status
-rundbat start dev --json          # Start container
-rundbat stop dev --json           # Stop container
-rundbat health dev --json         # Database connectivity
-rundbat validate dev --json       # Full validation
-rundbat set-secret dev KEY=VAL    # Store secret
-rundbat check-drift --json        # App name drift
-```
-
-## How to write config
-
-Never edit `config/` files directly. Use dotconfig:
+Use dotconfig directly for secrets:
 
 ```bash
-# Store a secret
-rundbat set-secret <env> DATABASE_URL=postgresql://...
-
-# Round-trip editing
-dotconfig load -d <env> --json       # writes .env.json
+# Load, edit, save round-trip
+dotconfig load -d <env> --json
 # ... edit .env.json ...
-dotconfig save --json                # writes back to config/
+dotconfig save --json
+
+# Check key status
+dotconfig keys
 ```
+
+Never edit `config/` files directly. Never echo secret values.
 
 ## Decision framework
 
-1. **New project?** → Interview for app type, services, deployment targets.
-   Write to `rundbat.yaml`. Run `rundbat init`.
-2. **Need a database?** → `rundbat create-env dev` for quick local dev.
-3. **Full stack locally?** → Generate `docker/` with compose, use
-   `docker compose up`.
-4. **Deploy remotely?** → Configure Docker host access, build image,
-   deploy compose stack with Caddy labels.
-5. **Something broken?** → `rundbat validate <env>`, then `rundbat discover`,
-   then `docker inspect` for details.
+1. **New project?** → `rundbat init`, then `rundbat init-docker`
+2. **Need services running?** → `docker compose up -d`
+3. **Deploy remotely?** → `rundbat deploy-init prod --host ssh://...`,
+   then `rundbat deploy prod`
+4. **Something broken?** → `docker compose ps`, `docker compose logs`,
+   `docker inspect`
 
 ## Configuration structure
 
@@ -82,7 +88,3 @@ config/
     public.env          # Developer-specific overrides
     secrets.env         # Developer-specific secrets
 ```
-
-`rundbat.yaml` is the single source of truth for deployment topology:
-app name, framework, services, and per-deployment config (host, access
-method, hostname, swarm flag).

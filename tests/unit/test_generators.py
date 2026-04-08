@@ -168,10 +168,19 @@ class TestGenerateJustfile:
         assert "down:" in jf
         assert "logs" in jf
 
+    def test_docker_context_var(self):
+        deployments = {
+            "dev": {"docker_context": "orbstack"},
+            "prod": {"docker_context": "myapp-prod"},
+        }
+        jf = generate_justfile("myapp", deployments=deployments)
+        assert "DOCKER_CONTEXT=" in jf
+        assert "orbstack" in jf
+        assert "myapp-prod" in jf
+
     def test_deploy_recipe(self):
         jf = generate_justfile("myapp")
-        assert 'deploy env="prod":' in jf
-        assert "rundbat deploy {{env}}" in jf
+        assert "deploy:" in jf
 
     def test_no_push_recipe(self):
         jf = generate_justfile("myapp")

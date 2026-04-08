@@ -257,45 +257,74 @@ def generate_compose(
 # Justfile generation
 # ---------------------------------------------------------------------------
 
-def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = None) -> str:
-    """Generate a Justfile with standard deployment recipes."""
+def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = None,
+                      deployments: dict[str, dict] | None = None) -> str:
+    """Generate a Justfile with standard deployment recipes.
+
+    All docker commands use DOCKER_CONTEXT env var so they target the
+    right Docker daemon. Context names are baked in from rundbat.yaml
+    at generation time. Regenerate with `rundbat init-docker` after
+    config changes.
+    """
     has_postgres = any(s["type"] == "postgres" for s in (services or []))
     has_mariadb = any(s["type"] == "mariadb" for s in (services or []))
+
+    # Build context map: env name -> docker context name
+    context_map = {}
+    if deployments:
+        for dep_name, dep_cfg in deployments.items():
+            ctx = dep_cfg.get("docker_context", "")
+            if ctx:
+                context_map[dep_name] = ctx
+
+    # Generate the context lookup as a just expression
+    # Uses chained if/else to map env name to context
+    if context_map:
+        parts = []
+        for dep_name, ctx in context_map.items():
+            parts.append(f'if ENV == "{dep_name}" {{ "{ctx}" }}')
+        ctx_expr = " else ".join(parts) + ' else { "default" }'
+    else:
+        ctx_expr = '"default"'
+
+    docker = "DOCKER_CONTEXT={{CTX}} docker"
 
     lines = [
         f"# {app_name} — Docker deployment recipes",
         "",
         "set dotenv-load",
         "",
-        "# Default environment",
+        "# Target environment (dev, test, prod)",
         'ENV := env("DEPLOY_ENV", "dev")',
+        "",
+        f"# Docker context for target environment",
+        f"CTX := {ctx_expr}",
         "",
         "# Build the app image",
         "build:",
-        f"    docker compose -f docker/docker-compose.yml build",
+        f"    {docker} compose -f docker/docker-compose.yml build",
         "",
         "# Start all services",
         "up:",
-        "    docker compose -f docker/docker-compose.yml up -d",
+        f"    {docker} compose -f docker/docker-compose.yml up -d",
         "",
         "# Stop all services",
         "down:",
-        "    docker compose -f docker/docker-compose.yml down",
+        f"    {docker} compose -f docker/docker-compose.yml down",
         "",
         "# Stop and remove volumes (destructive)",
         "down-with-data:",
-        "    docker compose -f docker/docker-compose.yml down -v",
+        f"    {docker} compose -f docker/docker-compose.yml down -v",
         "",
         "# View logs",
         "logs *ARGS:",
-        "    docker compose -f docker/docker-compose.yml logs {{ARGS}}",
+        f"    {docker} compose -f docker/docker-compose.yml logs {{ARGS}}",
         "",
         "# Rebuild and restart",
         "restart: build up",
         "",
-        "# Deploy to a remote environment",
-        'deploy env="prod":',
-        "    rundbat deploy {{env}}",
+        "# Deploy (build + start on target environment)",
+        'deploy: build up',
         "",
     ]
 
@@ -303,19 +332,19 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         lines.extend([
             "# PostgreSQL shell",
             "psql:",
-            '    docker compose -f docker/docker-compose.yml exec postgres psql -U ${DB_USER:-app} ${DB_NAME:-app}',
+            f'    {docker} compose -f docker/docker-compose.yml exec postgres psql -U ${{DB_USER:-app}} ${{DB_NAME:-app}}',
             "",
             "# Dump PostgreSQL database",
             "db-dump:",
-            f'    docker compose -f docker/docker-compose.yml exec postgres pg_dump -U ${{DB_USER:-app}} ${{DB_NAME:-app}} > backups/{{{{ENV}}}}_{app_name}_$(date +%Y%m%d_%H%M%S).sql',
+            f'    {docker} compose -f docker/docker-compose.yml exec postgres pg_dump -U ${{DB_USER:-app}} ${{DB_NAME:-app}} > backups/{{{{ENV}}}}_{app_name}_$(date +%Y%m%d_%H%M%S).sql',
             "",
             "# Restore PostgreSQL database from file",
             "db-restore FILE:",
-            '    docker compose -f docker/docker-compose.yml exec -T postgres psql -U ${DB_USER:-app} ${DB_NAME:-app} < {{FILE}}',
+            f'    {docker} compose -f docker/docker-compose.yml exec -T postgres psql -U ${{DB_USER:-app}} ${{DB_NAME:-app}} < {{FILE}}',
             "",
             "# Run database migrations",
             "db-migrate:",
-            '    docker compose -f docker/docker-compose.yml exec app npm run migrate 2>/dev/null || docker compose -f docker/docker-compose.yml exec app python manage.py migrate 2>/dev/null || echo "No migration command found"',
+            f'    {docker} compose -f docker/docker-compose.yml exec app npm run migrate 2>/dev/null || {docker} compose -f docker/docker-compose.yml exec app python manage.py migrate 2>/dev/null || echo "No migration command found"',
             "",
         ])
 
@@ -323,15 +352,15 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         lines.extend([
             "# MariaDB shell",
             "mysql:",
-            '    docker compose -f docker/docker-compose.yml exec mariadb mariadb -u ${DB_USER:-app} -p${DB_PASSWORD} ${DB_NAME:-app}',
+            f'    {docker} compose -f docker/docker-compose.yml exec mariadb mariadb -u ${{DB_USER:-app}} -p${{DB_PASSWORD}} ${{DB_NAME:-app}}',
             "",
             "# Dump MariaDB database",
             "db-dump:",
-            f'    docker compose -f docker/docker-compose.yml exec mariadb mariadb-dump -u ${{DB_USER:-app}} -p${{DB_PASSWORD}} ${{DB_NAME:-app}} > backups/{{{{ENV}}}}_{app_name}_$(date +%Y%m%d_%H%M%S).sql',
+            f'    {docker} compose -f docker/docker-compose.yml exec mariadb mariadb-dump -u ${{DB_USER:-app}} -p${{DB_PASSWORD}} ${{DB_NAME:-app}} > backups/{{{{ENV}}}}_{app_name}_$(date +%Y%m%d_%H%M%S).sql',
             "",
             "# Restore MariaDB database from file",
             "db-restore FILE:",
-            '    docker compose -f docker/docker-compose.yml exec -T mariadb mariadb -u ${DB_USER:-app} -p${DB_PASSWORD} ${DB_NAME:-app} < {{FILE}}',
+            f'    {docker} compose -f docker/docker-compose.yml exec -T mariadb mariadb -u ${{DB_USER:-app}} -p${{DB_PASSWORD}} ${{DB_NAME:-app}} < {{FILE}}',
             "",
         ])
 
@@ -457,6 +486,7 @@ def init_docker(
     services: list[dict[str, Any]] | None = None,
     hostname: str | None = None,
     swarm: bool = False,
+    deployments: dict[str, dict] | None = None,
 ) -> dict:
     """Generate the complete docker/ directory.
 
@@ -483,7 +513,7 @@ def init_docker(
 
     # Justfile
     justfile = docker_dir / "Justfile"
-    justfile.write_text(generate_justfile(app_name, services))
+    justfile.write_text(generate_justfile(app_name, services, deployments))
     generated.append(str(justfile.relative_to(project_dir)))
 
     # .env.example

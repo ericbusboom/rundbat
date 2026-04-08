@@ -1,50 +1,45 @@
 # dev-database
 
-Quick local dev database via `docker run` — no compose needed. For fast
-iteration when you just need a database connection string.
+Set up database services for local development using docker compose.
 
 ## When to use
 
 - "I need a dev database"
-- "Give me a Postgres/MariaDB/Redis for development"
+- "Give me a Postgres/Redis for development"
 - "Set up a local database"
 
 ## Steps
 
-1. Check if environment already exists:
+1. Ensure Docker artifacts exist. If no `docker/docker-compose.yml`:
    ```bash
-   rundbat health dev --json
-   ```
-   If healthy, just return the config:
-   ```bash
-   rundbat get-config dev --json
+   rundbat init-docker
    ```
 
-2. If no environment exists, create one:
+2. Start services:
    ```bash
-   rundbat create-env dev --json
+   docker compose -f docker/docker-compose.yml up -d
    ```
-   This generates credentials, allocates a port, starts a container,
-   and saves the connection string to dotconfig.
 
-3. Return the connection string to the developer:
+3. Check services are healthy:
    ```bash
-   rundbat get-config dev --json
+   docker compose -f docker/docker-compose.yml ps
    ```
-   Parse the JSON output to get `database.connection_string`.
 
-## Auto-recovery
+4. Get the connection string from dotconfig:
+   ```bash
+   dotconfig load -d dev --json --flat -S
+   ```
+   Look for `DATABASE_URL` in the output.
 
-`rundbat get-config` handles stale state automatically:
-- Container stopped → auto-restarts
-- Container missing → recreates (warns about data loss)
-- Port conflict → allocates new port
+5. If no `DATABASE_URL` exists yet, store one:
+   ```bash
+   dotconfig load -d dev --json
+   # Edit .env.json to add DATABASE_URL in the secrets section
+   dotconfig save --json
+   ```
 
-## Supported databases
+## Adding a database service
 
-- **Postgres** (default) — `docker run postgres:16`
-- **MariaDB** — `docker run mariadb:11` (future)
-- **Redis** — `docker run redis:7` (future)
-
-Currently only Postgres is implemented. MariaDB and Redis support
-will be added in a future sprint.
+If the compose file doesn't include the database you need, edit
+`docker/docker-compose.yml` to add a postgres, mariadb, or redis
+service with appropriate health checks.

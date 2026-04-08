@@ -4,13 +4,13 @@ container_template: '{app}-{env}-pg'
 database_template: '{app}_{env}'
 deployments:
   dev:
+    docker_context: default
     compose_file: docker/docker-compose.yml
-    host: localhost
   prod:
+    docker_context: proj-prod
     compose_file: docker/docker-compose.prod.yml
-    host: ''
-    hostname: ''
+    hostname: rundbat.apps1.jointheleague.org
   test:
+    docker_context: default
     compose_file: docker/docker-compose.yml
-    host: localhost
 notes: []
