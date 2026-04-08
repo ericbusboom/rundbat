@@ -9,8 +9,9 @@ from rundbat.deploy import (
     DeployError,
     VALID_STRATEGIES,
     load_deploy_config,
-    _context_name,
+    _context_name_from_host,
     _context_exists,
+    _find_context_for_host,
     _detect_remote_platform,
     _parse_ssh_host,
     _ssh_cmd,
@@ -260,8 +261,27 @@ class TestLoadDeployConfig:
 # ---------------------------------------------------------------------------
 
 class TestContextHelpers:
-    def test_context_name(self):
-        assert _context_name("myapp", "prod") == "myapp-prod"
+    def test_context_name_from_host(self):
+        assert _context_name_from_host("ssh://root@docker1.example.com") == "docker1.example.com"
+
+    def test_context_name_from_host_ip(self):
+        assert _context_name_from_host("ssh://root@192.168.1.10") == "192.168.1.10"
+
+    def test_context_name_from_host_with_port(self):
+        assert _context_name_from_host("ssh://root@host:2222") == "host"
+
+    def test_context_name_from_host_no_user(self):
+        assert _context_name_from_host("ssh://docker1.example.com") == "docker1.example.com"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_find_context_for_host_found(self, mock_docker):
+        mock_docker.return_value = "default\tunix:///var/run/docker.sock\nmyctx\tssh://root@host"
+        assert _find_context_for_host("ssh://root@host") == "myctx"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_find_context_for_host_not_found(self, mock_docker):
+        mock_docker.return_value = "default\tunix:///var/run/docker.sock"
+        assert _find_context_for_host("ssh://root@other") is None
 
     @patch("rundbat.deploy._run_docker")
     def test_context_exists_true(self, mock_docker):
@@ -617,7 +637,8 @@ class TestInitDeployment:
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy.create_context")
     @patch("rundbat.deploy._context_exists")
-    def test_creates_new(self, mock_exists, mock_create, mock_verify,
+    @patch("rundbat.deploy._find_context_for_host")
+    def test_creates_new(self, mock_find, mock_exists, mock_create, mock_verify,
                          mock_platform, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
@@ -627,34 +648,36 @@ class TestInitDeployment:
             "notes": [],
         }))
 
+        mock_find.return_value = None
         mock_exists.return_value = False
-        mock_create.return_value = "myapp-prod"
+        mock_create.return_value = "docker1.example.com"
         mock_verify.return_value = {"status": "ok"}
         mock_platform.return_value = "linux/amd64"
 
-        result = init_deployment("prod", "ssh://root@host",
+        result = init_deployment("prod", "ssh://root@docker1.example.com",
                                  compose_file="docker/prod.yml",
                                  hostname="app.example.com")
         assert result["status"] == "ok"
-        assert result["context"] == "myapp-prod"
-        assert result["host"] == "ssh://root@host"
+        assert result["context"] == "docker1.example.com"
+        assert result["host"] == "ssh://root@docker1.example.com"
         assert result["platform"] == "linux/amd64"
         assert result["build_strategy"] in VALID_STRATEGIES
 
         # Verify config was saved with new fields
         saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
-        assert saved["deployments"]["prod"]["docker_context"] == "myapp-prod"
+        assert saved["deployments"]["prod"]["docker_context"] == "docker1.example.com"
         assert saved["deployments"]["prod"]["compose_file"] == "docker/prod.yml"
         assert saved["deployments"]["prod"]["hostname"] == "app.example.com"
-        assert saved["deployments"]["prod"]["host"] == "ssh://root@host"
+        assert saved["deployments"]["prod"]["host"] == "ssh://root@docker1.example.com"
         assert saved["deployments"]["prod"]["platform"] == "linux/amd64"
         assert saved["deployments"]["prod"]["build_strategy"] in VALID_STRATEGIES
 
     @patch("rundbat.deploy._detect_remote_platform")
     @patch("rundbat.deploy.verify_access")
-    @patch("rundbat.deploy._context_exists")
-    def test_existing_context(self, mock_exists, mock_verify,
-                              mock_platform, tmp_path, monkeypatch):
+    @patch("rundbat.deploy._find_context_for_host")
+    def test_reuses_existing_context_for_same_host(self, mock_find, mock_verify,
+                                                    mock_platform, tmp_path,
+                                                    monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -663,18 +686,20 @@ class TestInitDeployment:
             "notes": [],
         }))
 
-        mock_exists.return_value = True
+        mock_find.return_value = "existing-ctx"
         mock_verify.return_value = {"status": "ok"}
         mock_platform.return_value = "linux/arm64"
 
         result = init_deployment("prod", "ssh://root@host")
         assert result["status"] == "ok"
+        assert result["context"] == "existing-ctx"
 
     @patch("rundbat.deploy._detect_remote_platform")
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy.create_context")
     @patch("rundbat.deploy._context_exists")
-    def test_explicit_strategy(self, mock_exists, mock_create, mock_verify,
+    @patch("rundbat.deploy._find_context_for_host")
+    def test_explicit_strategy(self, mock_find, mock_exists, mock_create, mock_verify,
                                mock_platform, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
@@ -684,8 +709,9 @@ class TestInitDeployment:
             "notes": [],
         }))
 
+        mock_find.return_value = None
         mock_exists.return_value = False
-        mock_create.return_value = "myapp-prod"
+        mock_create.return_value = "host"
         mock_verify.return_value = {"status": "ok"}
         mock_platform.return_value = "linux/amd64"
 
@@ -700,7 +726,8 @@ class TestInitDeployment:
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy.create_context")
     @patch("rundbat.deploy._context_exists")
-    def test_with_ssh_key(self, mock_exists, mock_create, mock_verify,
+    @patch("rundbat.deploy._find_context_for_host")
+    def test_with_ssh_key(self, mock_find, mock_exists, mock_create, mock_verify,
                           mock_platform, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
@@ -710,8 +737,9 @@ class TestInitDeployment:
             "notes": [],
         }))
 
+        mock_find.return_value = None
         mock_exists.return_value = False
-        mock_create.return_value = "myapp-prod"
+        mock_create.return_value = "host"
         mock_verify.return_value = {"status": "ok"}
         mock_platform.return_value = "linux/amd64"
 
@@ -739,8 +767,9 @@ class TestInitDeployment:
     @patch("rundbat.deploy.verify_access")
     @patch("rundbat.deploy.create_context")
     @patch("rundbat.deploy._context_exists")
+    @patch("rundbat.deploy._find_context_for_host")
     def test_auto_selects_ssh_transfer_cross_arch(
-        self, mock_exists, mock_create, mock_verify,
+        self, mock_find, mock_exists, mock_create, mock_verify,
         mock_platform, tmp_path, monkeypatch,
     ):
         monkeypatch.chdir(tmp_path)
@@ -751,8 +780,9 @@ class TestInitDeployment:
             "notes": [],
         }))
 
+        mock_find.return_value = None
         mock_exists.return_value = False
-        mock_create.return_value = "myapp-prod"
+        mock_create.return_value = "host"
         mock_verify.return_value = {"status": "ok"}
         mock_platform.return_value = "linux/amd64"
 
