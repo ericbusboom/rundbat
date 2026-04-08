@@ -143,3 +143,25 @@
 2026-04-07T14:55:55 [INFO] [team-lead] CALL close_sprint({"sprint_id": "001", "branch_name": "sprint/001-flask-counter-app", "main_branch": "main", "push_tags": "False", "delete_branch": "True"})
 2026-04-07T14:55:55 [INFO] [team-lead]   OK close_sprint -> ([TextContent(type='text', text='{\n  "status": "error",\n  "error": {\n    "step": "tests",\n    "message": "Tests failed (exit code 1)",\n    "output": ": ModuleNotFoundError\\n________________________ test_counters_are_independent _________________________\\n\\n    def test_counters_are_independent():\\n        mock_sub = MagicMock()\\n>       app_mod, mock_pg, mock_rd = _import_app(mock_sub)\\n                                    ^^^^^^^^^^^^^^^^^^^^^\\n\\ntest_app.py:235: \\n_ _ _ _ _ _ _ _ ...
 2026-04-07T14:57:14 [INFO] [team-lead] CALL close_sprint({"sprint_id": "001", "branch_name": "sprint/001-flask-counter-app", "main_branch": "main", "push_tags": "False", "delete_branch": "True"})
+2026-04-08T09:30:33 [INFO] ============================================================
+2026-04-08T09:30:33 [INFO] CLASI MCP server starting
+2026-04-08T09:30:33 [INFO]   serving: team-lead (tier 0)
+2026-04-08T09:30:33 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat/tests/proj
+2026-04-08T09:30:33 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi
+2026-04-08T09:30:33 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-08T09:30:33 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-08T09:30:33 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi/log/mcp-server.log
+2026-04-08T09:30:33 [INFO]   tools registered: 30
+2026-04-08T09:30:33 [INFO] CLASI MCP server ready
+2026-04-08T09:31:20 [INFO] ============================================================
+2026-04-08T09:31:20 [INFO] CLASI MCP server starting
+2026-04-08T09:31:20 [INFO]   serving: team-lead (tier 0)
+2026-04-08T09:31:20 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat/tests/proj
+2026-04-08T09:31:20 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi
+2026-04-08T09:31:20 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-08T09:31:20 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-08T09:31:20 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi/log/mcp-server.log
+2026-04-08T09:31:20 [INFO]   tools registered: 30
+2026-04-08T09:31:20 [INFO] CLASI MCP server ready
+2026-04-08T09:32:07 [INFO] [team-lead] CALL get_version({})
+2026-04-08T09:32:07 [INFO] [team-lead]   OK get_version -> ([TextContent(type='text', text='{\n  "version": "0.20260406.2"\n}', annotations=None, meta=None)], {'result': '{\n  "version": "0.20260406.2"\n}'})

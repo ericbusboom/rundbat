@@ -4,13 +4,17 @@ container_template: '{app}-{env}-pg'
 database_template: '{app}_{env}'
 deployments:
   dev:
-    docker_context: default
     compose_file: docker/docker-compose.yml
+    docker_context: default
   prod:
-    docker_context: proj-prod
+    build_strategy: context
     compose_file: docker/docker-compose.prod.yml
+    docker_context: docker1.apps1.jointheleague.org
+    host: ssh://root@docker1.apps1.jointheleague.org
     hostname: rundbat.apps1.jointheleague.org
+    platform: linux/amd64
+    ssh_key: config/files/docker1.apps1.jointheleague.org.pem
   test:
-    docker_context: default
     compose_file: docker/docker-compose.yml
+    docker_context: default
 notes: []
