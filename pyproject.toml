@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "rundbat"
-version = "0.20260408.1"
+version = "0.20260408.2"
 description = "Deployment Expert — Docker-based environment management CLI"
 requires-python = ">=3.10"
 dependencies = [
