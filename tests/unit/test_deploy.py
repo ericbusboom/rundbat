@@ -13,6 +13,7 @@ from rundbat.deploy import (
     _context_exists,
     _detect_remote_platform,
     _parse_ssh_host,
+    _ssh_cmd,
     _get_buildable_images,
     _cleanup_remote,
     create_context,
@@ -89,6 +90,20 @@ class TestParseSSHHost:
 
     def test_with_port(self):
         assert _parse_ssh_host("ssh://root@host:2222") == "root@host:2222"
+
+
+class TestSSHCmd:
+    def test_without_key(self):
+        result = _ssh_cmd("ssh://root@host")
+        assert result == "ssh root@host"
+
+    def test_with_key(self):
+        result = _ssh_cmd("ssh://root@host", ssh_key="config/prod/deploy-key")
+        assert result == "ssh -i config/prod/deploy-key -o StrictHostKeyChecking=no root@host"
+
+    def test_none_key(self):
+        result = _ssh_cmd("ssh://root@host", ssh_key=None)
+        assert result == "ssh root@host"
 
 
 class TestGetBuildableImages:
@@ -447,6 +462,41 @@ class TestDeploySSHTransfer:
         )
         mock_transfer.assert_called_once()
 
+    @patch("rundbat.deploy._run_docker")
+    def test_dry_run_with_ssh_key(self, mock_docker, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "myapp-prod",
+                    "compose_file": "docker/docker-compose.prod.yml",
+                    "hostname": "app.example.com",
+                    "host": "ssh://root@docker1.example.com",
+                    "platform": "linux/amd64",
+                    "build_strategy": "ssh-transfer",
+                    "ssh_key": "config/prod/myapp-deploy-key",
+                },
+            },
+        }))
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir()
+        compose = {
+            "services": {
+                "app": {"build": {"context": ".."}, "ports": ["3000:3000"]},
+            }
+        }
+        (docker_dir / "docker-compose.prod.yml").write_text(yaml.dump(compose))
+
+        result = deploy("prod", dry_run=True)
+        assert result["strategy"] == "ssh-transfer"
+        # Transfer command should include -i key
+        transfer_cmd = result["commands"][1]
+        assert "-i config/prod/myapp-deploy-key" in transfer_cmd
+        assert "StrictHostKeyChecking=no" in transfer_cmd
+
     def test_missing_host(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
@@ -645,6 +695,32 @@ class TestInitDeployment:
 
         saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
         assert saved["deployments"]["prod"]["build_strategy"] == "github-actions"
+
+    @patch("rundbat.deploy._detect_remote_platform")
+    @patch("rundbat.deploy.verify_access")
+    @patch("rundbat.deploy.create_context")
+    @patch("rundbat.deploy._context_exists")
+    def test_with_ssh_key(self, mock_exists, mock_create, mock_verify,
+                          mock_platform, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "notes": [],
+        }))
+
+        mock_exists.return_value = False
+        mock_create.return_value = "myapp-prod"
+        mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/amd64"
+
+        result = init_deployment("prod", "ssh://root@host",
+                                 ssh_key="config/prod/myapp-deploy-key")
+        assert result["ssh_key"] == "config/prod/myapp-deploy-key"
+
+        saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
+        assert saved["deployments"]["prod"]["ssh_key"] == "config/prod/myapp-deploy-key"
 
     def test_invalid_strategy(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)

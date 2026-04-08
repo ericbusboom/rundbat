@@ -220,6 +220,7 @@ def cmd_deploy_init(args):
             compose_file=args.compose_file,
             hostname=args.hostname,
             build_strategy=args.strategy,
+            ssh_key=args.ssh_key,
         )
     except DeployError as e:
         _error(str(e), args.json)
@@ -232,6 +233,8 @@ def cmd_deploy_init(args):
         print(f"  Docker context: {result['context']}")
         print(f"  Host: {result['host']}")
         print(f"  Build strategy: {result['build_strategy']}")
+        if result.get("ssh_key"):
+            print(f"  SSH key: {result['ssh_key']}")
         if result.get("platform"):
             from rundbat.discovery import local_docker_platform
             local_plat = local_docker_platform()
@@ -382,6 +385,10 @@ Commands:
         "--strategy", default=None,
         choices=["context", "ssh-transfer", "github-actions"],
         help="Build strategy for this deployment",
+    )
+    deploy_init_parser.add_argument(
+        "--ssh-key", default=None,
+        help="Path to SSH private key for this deployment (e.g., config/prod/app-deploy-key)",
     )
     _add_json_flag(deploy_init_parser)
     deploy_init_parser.set_defaults(func=cmd_deploy_init)

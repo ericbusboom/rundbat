@@ -106,6 +106,18 @@ def _parse_ssh_host(host_url: str) -> str:
     return host_url
 
 
+def _ssh_cmd(host_url: str, ssh_key: str | None = None) -> str:
+    """Build an ssh command string with optional identity file.
+
+    Returns something like 'ssh -i config/prod/key -o StrictHostKeyChecking=no root@host'
+    or just 'ssh root@host' when no key is provided.
+    """
+    ssh_host = _parse_ssh_host(host_url)
+    if ssh_key:
+        return f"ssh -i {ssh_key} -o StrictHostKeyChecking=no {ssh_host}"
+    return f"ssh {ssh_host}"
+
+
 def _get_buildable_images(compose_file: str) -> list[str]:
     """Get image names for services that have a build section.
 
@@ -146,16 +158,17 @@ def _build_local(compose_file: str, platform: str | None = None,
 
 
 def _transfer_images(images: list[str], host_url: str,
+                     ssh_key: str | None = None,
                      timeout: int = 600) -> None:
     """Transfer Docker images to a remote host via SSH.
 
-    Runs: docker save <images> | ssh <host> docker load
+    Runs: docker save <images> | ssh [-i key] <host> docker load
     """
     if not images:
         raise DeployError("No images to transfer.")
 
-    ssh_host = _parse_ssh_host(host_url)
-    cmd = f"docker save {' '.join(images)} | ssh {ssh_host} docker load"
+    ssh = _ssh_cmd(host_url, ssh_key)
+    cmd = f"docker save {' '.join(images)} | {ssh} docker load"
 
     try:
         result = subprocess.run(
@@ -220,6 +233,7 @@ def load_deploy_config(name: str) -> dict:
         "host": deploy_cfg.get("host"),
         "platform": deploy_cfg.get("platform"),
         "build_strategy": deploy_cfg.get("build_strategy", "context"),
+        "ssh_key": deploy_cfg.get("ssh_key"),
     }
 
 
@@ -278,6 +292,7 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False,
     compose_file = deploy_cfg["compose_file"]
     hostname = deploy_cfg.get("hostname")
     host = deploy_cfg.get("host")
+    ssh_key = deploy_cfg.get("ssh_key")
     build_strategy = strategy or deploy_cfg.get("build_strategy", "context")
     target_platform = platform or deploy_cfg.get("platform")
 
@@ -309,10 +324,12 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False,
         return _deploy_context(ctx, compose_file, hostname, no_build, dry_run)
     elif build_strategy == "ssh-transfer":
         return _deploy_ssh_transfer(
-            ctx, compose_file, hostname, host, target_platform, dry_run,
+            ctx, compose_file, hostname, host, target_platform, ssh_key,
+            dry_run,
         )
     else:  # github-actions
-        return _deploy_github_actions(ctx, compose_file, hostname, host, dry_run)
+        return _deploy_github_actions(ctx, compose_file, hostname, host,
+                                      ssh_key, dry_run)
 
 
 def _deploy_context(ctx: str, compose_file: str, hostname: str | None,
@@ -359,7 +376,7 @@ def _deploy_context(ctx: str, compose_file: str, hostname: str | None,
 
 def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
                          host: str, target_platform: str | None,
-                         dry_run: bool) -> dict:
+                         ssh_key: str | None, dry_run: bool) -> dict:
     """Deploy by building locally and transferring images via SSH."""
     images = _get_buildable_images(compose_file)
     if not images:
@@ -368,11 +385,11 @@ def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
             f"Ensure at least one service has a 'build' section."
         )
 
-    ssh_host = _parse_ssh_host(host)
+    ssh = _ssh_cmd(host, ssh_key)
     build_cmd = "docker compose -f " + compose_file + " build"
     if target_platform:
         build_cmd += f" --platform {target_platform}"
-    transfer_cmd = f"docker save {' '.join(images)} | ssh {ssh_host} docker load"
+    transfer_cmd = f"docker save {' '.join(images)} | {ssh} docker load"
     up_cmd = f"docker --context {ctx} compose -f {compose_file} up -d"
 
     if dry_run:
@@ -390,7 +407,7 @@ def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
         return result
 
     _build_local(compose_file, target_platform)
-    _transfer_images(images, host)
+    _transfer_images(images, host, ssh_key=ssh_key)
     _run_docker(["--context", ctx, "compose", "-f", compose_file, "up", "-d"],
                 timeout=120)
 
@@ -410,9 +427,8 @@ def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
 
 def _deploy_github_actions(ctx: str, compose_file: str,
                            hostname: str | None, host: str,
-                           dry_run: bool) -> dict:
+                           ssh_key: str | None, dry_run: bool) -> dict:
     """Deploy by pulling pre-built images from GHCR."""
-    ssh_host = _parse_ssh_host(host)
     pull_cmd = f"docker --context {ctx} compose -f {compose_file} pull"
     up_cmd = f"docker --context {ctx} compose -f {compose_file} up -d"
 
@@ -453,7 +469,8 @@ def _context_name(app_name: str, deploy_name: str) -> str:
 
 def init_deployment(name: str, host: str, compose_file: str | None = None,
                     hostname: str | None = None,
-                    build_strategy: str | None = None) -> dict:
+                    build_strategy: str | None = None,
+                    ssh_key: str | None = None) -> dict:
     """Set up a new deployment target: verify access, create context, save config.
 
     Args:
@@ -462,6 +479,7 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         compose_file: Path to compose file (optional)
         hostname: App hostname for post-deploy message (optional)
         build_strategy: Build strategy (context, ssh-transfer, github-actions)
+        ssh_key: Path to SSH private key file (e.g., config/prod/app-deploy-key)
 
     Returns dict with status and details.
     """
@@ -509,6 +527,8 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         deploy_entry["compose_file"] = compose_file
     if hostname:
         deploy_entry["hostname"] = hostname
+    if ssh_key:
+        deploy_entry["ssh_key"] = ssh_key
     deployments[name] = deploy_entry
     cfg["deployments"] = deployments
     config.save_config(data=cfg)
@@ -520,4 +540,5 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         "host": host,
         "platform": remote_platform,
         "build_strategy": build_strategy,
+        "ssh_key": ssh_key,
     }
