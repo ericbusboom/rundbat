@@ -6,6 +6,7 @@ Supports three build strategies:
 - github-actions: pull pre-built images from GHCR
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -31,7 +32,8 @@ class DeployError(Exception):
         }
 
 
-def _run_docker(args: list[str], timeout: int = 120) -> str:
+def _run_docker(args: list[str], timeout: int = 120,
+                env: dict[str, str] | None = None) -> str:
     """Run a docker command and return stdout. Raises DeployError on failure."""
     cmd = ["docker"] + args
     try:
@@ -40,6 +42,7 @@ def _run_docker(args: list[str], timeout: int = 120) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=env,
         )
     except FileNotFoundError:
         raise DeployError(
@@ -148,13 +151,16 @@ def _build_local(compose_file: str, platform: str | None = None,
     """Build images locally, optionally for a different platform.
 
     Uses docker compose build on the default (local) context.
+    Sets DOCKER_DEFAULT_PLATFORM env var for cross-arch builds since
+    not all Docker installations support `docker compose build --platform`.
     Returns stdout from the build command.
     """
     args = ["compose", "-f", compose_file, "build"]
+    env = None
     if platform:
-        args.extend(["--platform", platform])
+        env = {**os.environ, "DOCKER_DEFAULT_PLATFORM": platform}
 
-    return _run_docker(args, timeout=timeout)
+    return _run_docker(args, timeout=timeout, env=env)
 
 
 def _transfer_images(images: list[str], host_url: str,
@@ -388,7 +394,7 @@ def _deploy_ssh_transfer(ctx: str, compose_file: str, hostname: str | None,
     ssh = _ssh_cmd(host, ssh_key)
     build_cmd = "docker compose -f " + compose_file + " build"
     if target_platform:
-        build_cmd += f" --platform {target_platform}"
+        build_cmd = f"DOCKER_DEFAULT_PLATFORM={target_platform} " + build_cmd
     transfer_cmd = f"docker save {' '.join(images)} | {ssh} docker load"
     up_cmd = f"docker --context {ctx} compose -f {compose_file} up -d"
 

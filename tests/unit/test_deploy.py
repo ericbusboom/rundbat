@@ -436,7 +436,7 @@ class TestDeploySSHTransfer:
         assert result["strategy"] == "ssh-transfer"
         assert result["platform"] == "linux/amd64"
         assert len(result["commands"]) == 3
-        assert "--platform linux/amd64" in result["commands"][0]
+        assert "DOCKER_DEFAULT_PLATFORM=linux/amd64" in result["commands"][0]
         assert "docker save" in result["commands"][1]
         assert "ssh root@docker1.example.com" in result["commands"][1]
         mock_docker.assert_not_called()
