@@ -1,7 +1,7 @@
 ---
-id: "005"
-title: "Slim CLI Surface"
-status: planning
+id: '005'
+title: Slim CLI Surface
+status: done
 branch: sprint/005-slim-cli-surface
 use-cases:
 - SUC-001
