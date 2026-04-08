@@ -1,7 +1,6 @@
 """Tests for deploy module."""
 
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -12,10 +11,10 @@ from rundbat.deploy import (
     _context_name,
     _context_exists,
     create_context,
-    ensure_context,
     verify_access,
     deploy,
     init_deployment,
+    get_current_context,
 )
 
 
@@ -40,6 +39,22 @@ class TestDeployError:
 
 
 # ---------------------------------------------------------------------------
+# get_current_context
+# ---------------------------------------------------------------------------
+
+class TestGetCurrentContext:
+    @patch("rundbat.deploy._run_docker")
+    def test_returns_context_name(self, mock_docker):
+        mock_docker.return_value = "orbstack"
+        assert get_current_context() == "orbstack"
+
+    @patch("rundbat.deploy._run_docker")
+    def test_fallback_on_error(self, mock_docker):
+        mock_docker.side_effect = DeployError("no docker")
+        assert get_current_context() == "default"
+
+
+# ---------------------------------------------------------------------------
 # Config loading
 # ---------------------------------------------------------------------------
 
@@ -52,7 +67,7 @@ class TestLoadDeployConfig:
             "app_name": "myapp",
             "deployments": {
                 "prod": {
-                    "host": "ssh://root@example.com",
+                    "docker_context": "myapp-prod",
                     "compose_file": "docker/docker-compose.prod.yml",
                     "hostname": "app.example.com",
                 },
@@ -60,7 +75,7 @@ class TestLoadDeployConfig:
         }))
 
         result = load_deploy_config("prod")
-        assert result["host"] == "ssh://root@example.com"
+        assert result["docker_context"] == "myapp-prod"
         assert result["compose_file"] == "docker/docker-compose.prod.yml"
         assert result["hostname"] == "app.example.com"
 
@@ -71,7 +86,7 @@ class TestLoadDeployConfig:
         (config_dir / "rundbat.yaml").write_text(yaml.dump({
             "app_name": "myapp",
             "deployments": {
-                "prod": {"host": "ssh://root@example.com"},
+                "prod": {"docker_context": "myapp-prod"},
             },
         }))
 
@@ -84,7 +99,7 @@ class TestLoadDeployConfig:
         config_dir.mkdir()
         (config_dir / "rundbat.yaml").write_text(yaml.dump({
             "app_name": "myapp",
-            "deployments": {"staging": {"host": "ssh://root@staging"}},
+            "deployments": {"staging": {"docker_context": "myapp-staging"}},
         }))
 
         with pytest.raises(DeployError, match="No deployment 'prod'"):
@@ -101,7 +116,7 @@ class TestLoadDeployConfig:
         with pytest.raises(DeployError, match="No deployment 'prod'"):
             load_deploy_config("prod")
 
-    def test_missing_host(self, tmp_path, monkeypatch):
+    def test_missing_docker_context(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -112,7 +127,7 @@ class TestLoadDeployConfig:
             },
         }))
 
-        with pytest.raises(DeployError, match="missing required 'host'"):
+        with pytest.raises(DeployError, match="missing required 'docker_context'"):
             load_deploy_config("prod")
 
 
@@ -149,23 +164,6 @@ class TestContextHelpers:
             "--docker", "host=ssh://root@host",
         ])
 
-    @patch("rundbat.deploy._context_exists")
-    @patch("rundbat.deploy.create_context")
-    def test_ensure_context_creates_when_missing(self, mock_create, mock_exists):
-        mock_exists.return_value = False
-        mock_create.return_value = "myapp-prod"
-        result = ensure_context("myapp", "prod", "ssh://root@host")
-        assert result == "myapp-prod"
-        mock_create.assert_called_once_with("myapp-prod", "ssh://root@host")
-
-    @patch("rundbat.deploy._context_exists")
-    @patch("rundbat.deploy.create_context")
-    def test_ensure_context_skips_when_exists(self, mock_create, mock_exists):
-        mock_exists.return_value = True
-        result = ensure_context("myapp", "prod", "ssh://root@host")
-        assert result == "myapp-prod"
-        mock_create.assert_not_called()
-
 
 # ---------------------------------------------------------------------------
 # Verify access
@@ -199,23 +197,20 @@ class TestDeploy:
             "app_name": "myapp",
             "deployments": {
                 "prod": {
-                    "host": "ssh://root@docker1.example.com",
+                    "docker_context": "myapp-prod",
                     "compose_file": "docker/docker-compose.prod.yml",
                     "hostname": "app.example.com",
                 },
             },
         }))
-        # Create the compose file so deploy doesn't error
         docker_dir = tmp_path / "docker"
         docker_dir.mkdir()
         (docker_dir / "docker-compose.prod.yml").write_text("version: '3'\n")
 
     @patch("rundbat.deploy._run_docker")
-    @patch("rundbat.deploy.ensure_context")
-    def test_dry_run(self, mock_ensure, mock_docker, tmp_path, monkeypatch):
+    def test_dry_run(self, mock_docker, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         self._setup_config(tmp_path)
-        mock_ensure.return_value = "myapp-prod"
 
         result = deploy("prod", dry_run=True)
         assert result["status"] == "dry_run"
@@ -226,21 +221,17 @@ class TestDeploy:
         mock_docker.assert_not_called()
 
     @patch("rundbat.deploy._run_docker")
-    @patch("rundbat.deploy.ensure_context")
-    def test_dry_run_no_build(self, mock_ensure, mock_docker, tmp_path, monkeypatch):
+    def test_dry_run_no_build(self, mock_docker, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         self._setup_config(tmp_path)
-        mock_ensure.return_value = "myapp-prod"
 
         result = deploy("prod", dry_run=True, no_build=True)
         assert "--build" not in result["command"]
 
     @patch("rundbat.deploy._run_docker")
-    @patch("rundbat.deploy.ensure_context")
-    def test_deploy_success(self, mock_ensure, mock_docker, tmp_path, monkeypatch):
+    def test_deploy_success(self, mock_docker, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         self._setup_config(tmp_path)
-        mock_ensure.return_value = "myapp-prod"
         mock_docker.return_value = ""
 
         result = deploy("prod")
@@ -251,8 +242,7 @@ class TestDeploy:
         assert "--context" in call_args
         assert "--build" in call_args
 
-    @patch("rundbat.deploy.ensure_context")
-    def test_missing_compose_file(self, mock_ensure, tmp_path, monkeypatch):
+    def test_missing_compose_file(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -260,12 +250,11 @@ class TestDeploy:
             "app_name": "myapp",
             "deployments": {
                 "prod": {
-                    "host": "ssh://root@host",
+                    "docker_context": "myapp-prod",
                     "compose_file": "docker/docker-compose.prod.yml",
                 },
             },
         }))
-        mock_ensure.return_value = "myapp-prod"
 
         with pytest.raises(DeployError, match="Compose file not found"):
             deploy("prod")
@@ -299,9 +288,9 @@ class TestInitDeployment:
         assert result["status"] == "ok"
         assert result["context"] == "myapp-prod"
 
-        # Verify config was saved
+        # Verify config was saved with docker_context
         saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
-        assert saved["deployments"]["prod"]["host"] == "ssh://root@host"
+        assert saved["deployments"]["prod"]["docker_context"] == "myapp-prod"
         assert saved["deployments"]["prod"]["compose_file"] == "docker/prod.yml"
         assert saved["deployments"]["prod"]["hostname"] == "app.example.com"
 

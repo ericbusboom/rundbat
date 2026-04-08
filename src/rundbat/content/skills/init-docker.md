@@ -12,48 +12,36 @@ deployment package: Dockerfile, docker-compose.yml, Justfile, and
 
 ## Prerequisites
 
-- Project initialized (`rundbat.yaml` exists)
-- App framework detected or specified
+- Project initialized (`rundbat.yaml` exists — run `rundbat init` first)
 
 ## Steps
 
-1. Read project config:
+1. Run the generator:
    ```bash
-   dotconfig load -d dev --file rundbat.yaml -S
+   rundbat init-docker --json
    ```
 
-2. Detect framework if not configured:
-   - `package.json` → Node.js (check for next, express, etc.)
-   - `pyproject.toml` / `requirements.txt` → Python (check for flask, django, fastapi)
+   This auto-detects the framework and generates all artifacts.
 
-3. Generate `docker/Dockerfile`:
-   - Node: multi-stage build, `npm ci`, `npm start`
-   - Python: slim base, pip install, gunicorn/uvicorn
-   - Framework-specific optimizations (Next.js standalone, Django collectstatic)
+2. Review the generated files in `docker/`:
+   - `Dockerfile` — framework-specific multi-stage build
+   - `docker-compose.yml` — app + database services with health checks
+   - `Justfile` — deployment recipes (build, up, down, deploy, db ops)
+   - `.env.example` — environment variable template
 
-4. Generate `docker/docker-compose.yml`:
-   - App service referencing the Dockerfile
-   - Database services from `rundbat.yaml` services list
-   - Caddy labels (parameterized by hostname from config)
-   - Environment variables from dotconfig
-   - Health checks for all services
-
-5. Generate `docker/Justfile`:
-   - `just build` — build the app image
-   - `just up` / `just down` — compose lifecycle
-   - `just push` — push image to registry or remote host
-   - `just deploy ENV=<env>` — deploy to remote
-   - `just db-dump ENV=<env>` — database backup
-   - `just db-restore ENV=<env> FILE=<path>` — database restore
-   - `just db-migrate ENV=<env>` — run migrations
-   - `just logs` — tail service logs
-   - `just psql` / `just mysql` — database shell
-
-6. Generate `docker/.env.example`:
+3. Test locally:
    ```bash
-   dotconfig load -d dev --json -S  # sectioned, to see public vs secret
+   docker compose -f docker/docker-compose.yml up -d
    ```
-   Write public values as-is, replace secret values with placeholders.
+
+## Generated Justfile recipes
+
+- `just build` — build the app image
+- `just up` / `just down` — compose lifecycle
+- `just deploy` — deploy via `rundbat deploy`
+- `just logs` — tail service logs
+- `just psql` / `just mysql` — database shell (if applicable)
+- `just db-dump` / `just db-restore` — database backup/restore
 
 ## Outputs
 

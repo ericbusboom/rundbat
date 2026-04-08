@@ -1,4 +1,4 @@
-"""Deploy Service — deploy to remote Docker hosts via Docker contexts."""
+"""Deploy Service — deploy to Docker hosts via Docker contexts."""
 
 import subprocess
 from pathlib import Path
@@ -58,10 +58,18 @@ def _run_docker(args: list[str], timeout: int = 120) -> str:
     return result.stdout.strip()
 
 
+def get_current_context() -> str:
+    """Get the name of the currently active Docker context."""
+    try:
+        return _run_docker(["context", "show"])
+    except DeployError:
+        return "default"
+
+
 def load_deploy_config(name: str) -> dict:
     """Load a named deployment config from rundbat.yaml.
 
-    Returns dict with keys: host, compose_file, hostname (optional).
+    Returns dict with keys: docker_context, compose_file, hostname (optional).
     """
     from rundbat import config
 
@@ -76,21 +84,17 @@ def load_deploy_config(name: str) -> dict:
         )
 
     deploy_cfg = deployments[name]
-    if "host" not in deploy_cfg:
+    if "docker_context" not in deploy_cfg:
         raise DeployError(
-            f"Deployment '{name}' is missing required 'host' field in rundbat.yaml."
+            f"Deployment '{name}' is missing required 'docker_context' field "
+            f"in rundbat.yaml. Run 'rundbat init' with --force to regenerate config."
         )
 
     return {
-        "host": deploy_cfg["host"],
+        "docker_context": deploy_cfg["docker_context"],
         "compose_file": deploy_cfg.get("compose_file", "docker/docker-compose.yml"),
         "hostname": deploy_cfg.get("hostname"),
     }
-
-
-def _context_name(app_name: str, deploy_name: str) -> str:
-    """Generate a Docker context name from app and deployment names."""
-    return f"{app_name}-{deploy_name}"
 
 
 def _context_exists(name: str) -> bool:
@@ -111,17 +115,6 @@ def create_context(name: str, host: str) -> str:
     return name
 
 
-def ensure_context(app_name: str, deploy_name: str, host: str) -> str:
-    """Ensure a Docker context exists, creating it if needed.
-
-    Returns the context name.
-    """
-    name = _context_name(app_name, deploy_name)
-    if not _context_exists(name):
-        create_context(name, host)
-    return name
-
-
 def verify_access(context_name: str) -> dict:
     """Verify Docker access via a context by running docker info.
 
@@ -134,7 +127,7 @@ def verify_access(context_name: str) -> dict:
     except DeployError as e:
         raise DeployError(
             f"Cannot connect to Docker via context '{context_name}'. "
-            f"Check that SSH access works and Docker is running on the remote host.",
+            f"Check that the Docker daemon is reachable.",
             command=e.command,
             exit_code=e.exit_code,
             stderr=e.stderr,
@@ -142,23 +135,18 @@ def verify_access(context_name: str) -> dict:
 
 
 def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
-    """Deploy to a named remote host via Docker context.
+    """Deploy to a named host via Docker context.
 
     Args:
-        name: Deployment name from rundbat.yaml (e.g., 'prod')
+        name: Deployment name from rundbat.yaml (e.g., 'prod', 'dev')
         dry_run: If True, return the command without executing
         no_build: If True, skip the --build flag
 
     Returns dict with status, command, and optional hostname.
     """
-    from rundbat import config
-
-    cfg = config.load_config()
-    app_name = cfg.get("app_name", "app")
-
     deploy_cfg = load_deploy_config(name)
+    ctx = deploy_cfg["docker_context"]
     compose_file = deploy_cfg["compose_file"]
-    host = deploy_cfg["host"]
     hostname = deploy_cfg.get("hostname")
 
     # Verify compose file exists
@@ -166,9 +154,6 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
         raise DeployError(
             f"Compose file not found: {compose_file}"
         )
-
-    # Ensure Docker context
-    ctx = ensure_context(app_name, name, host)
 
     # Build the docker compose command
     docker_args = [
@@ -206,6 +191,11 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False) -> dict:
     return result
 
 
+def _context_name(app_name: str, deploy_name: str) -> str:
+    """Generate a Docker context name from app and deployment names."""
+    return f"{app_name}-{deploy_name}"
+
+
 def init_deployment(name: str, host: str, compose_file: str | None = None,
                     hostname: str | None = None) -> dict:
     """Set up a new deployment target: verify access, create context, save config.
@@ -226,7 +216,6 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
     # Create Docker context
     ctx = _context_name(app_name, name)
     if _context_exists(ctx):
-        # Context already exists, just verify it works
         verify_access(ctx)
     else:
         create_context(ctx, host)
@@ -234,7 +223,7 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
 
     # Save to rundbat.yaml
     deployments = cfg.get("deployments", {})
-    deploy_entry = {"host": host}
+    deploy_entry = {"docker_context": ctx}
     if compose_file:
         deploy_entry["compose_file"] = compose_file
     if hostname:
