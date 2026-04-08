@@ -1,5 +1,8 @@
 services:
   app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     image: proj-counter:latest
     environment:
       DATABASE_URL: postgresql://proj:proj@postgres:5432/proj

@@ -468,9 +468,43 @@ def _deploy_github_actions(ctx: str, compose_file: str,
     return result
 
 
-def _context_name(app_name: str, deploy_name: str) -> str:
-    """Generate a Docker context name from app and deployment names."""
-    return f"{app_name}-{deploy_name}"
+def _context_name_from_host(host_url: str) -> str:
+    """Generate a Docker context name from the SSH host URL.
+
+    Extracts the hostname and uses it as the context name.
+    'ssh://root@docker1.example.com' -> 'docker1.example.com'
+    'ssh://root@192.168.1.10' -> '192.168.1.10'
+    """
+    ssh_host = _parse_ssh_host(host_url)
+    # Strip user@ prefix
+    if "@" in ssh_host:
+        ssh_host = ssh_host.split("@", 1)[1]
+    # Strip :port suffix
+    if ":" in ssh_host:
+        ssh_host = ssh_host.split(":", 1)[0]
+    return ssh_host
+
+
+def _find_context_for_host(host_url: str) -> str | None:
+    """Find an existing Docker context that points to the given host.
+
+    Returns the context name if found, None otherwise.
+    """
+    try:
+        output = _run_docker([
+            "context", "ls", "--format",
+            "{{.Name}}\t{{.DockerEndpoint}}",
+        ])
+    except DeployError:
+        return None
+
+    for line in output.splitlines():
+        parts = line.split("\t", 1)
+        if len(parts) == 2:
+            ctx_name, endpoint = parts
+            if endpoint == host_url or endpoint.rstrip("/") == host_url.rstrip("/"):
+                return ctx_name
+    return None
 
 
 def init_deployment(name: str, host: str, compose_file: str | None = None,
@@ -498,15 +532,20 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         )
 
     cfg = config.load_config()
-    app_name = cfg.get("app_name", "app")
 
-    # Create Docker context
-    ctx = _context_name(app_name, name)
-    if _context_exists(ctx):
+    # Find or create Docker context — named after the host, not the app
+    existing_ctx = _find_context_for_host(host)
+    if existing_ctx:
+        ctx = existing_ctx
         verify_access(ctx)
     else:
-        create_context(ctx, host)
-        verify_access(ctx)
+        ctx = _context_name_from_host(host)
+        if _context_exists(ctx):
+            # Name collision but different host — verify it works
+            verify_access(ctx)
+        else:
+            create_context(ctx, host)
+            verify_access(ctx)
 
     # Detect remote platform
     remote_platform = _detect_remote_platform(ctx)
