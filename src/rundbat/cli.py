@@ -100,21 +100,40 @@ def cmd_init(args):
             print("\n  Install dotconfig first: pipx install dotconfig")
             sys.exit(1)
 
-    # Step 3: Save config/rundbat.yaml
-    print(f"  Saving rundbat config...", end=" ")
-    try:
-        data = {
-            "app_name": app_name,
-            "app_name_source": app_name_source,
-            "container_template": "{app}-{env}-pg",
-            "database_template": "{app}_{env}",
-            "notes": [],
-        }
-        config.save_config(data=data)
-        print("done.")
-    except ConfigError as e:
-        print(f"failed!\n    {e}")
-        sys.exit(1)
+    # Step 3: Save config/rundbat.yaml (skip if exists, unless --force)
+    config_path = Path("config") / "rundbat.yaml"
+    if config_path.exists() and not args.force:
+        print(f"  rundbat.yaml already exists, skipping. (Use --force to overwrite.)")
+    else:
+        print(f"  Saving rundbat config...", end=" ")
+        try:
+            data = {
+                "app_name": app_name,
+                "app_name_source": app_name_source,
+                "container_template": "{app}-{env}-pg",
+                "database_template": "{app}_{env}",
+                "deployments": {
+                    "dev": {
+                        "host": "localhost",
+                        "compose_file": "docker/docker-compose.yml",
+                    },
+                    "prod": {
+                        "host": "",
+                        "compose_file": "docker/docker-compose.prod.yml",
+                        "hostname": "",
+                    },
+                    "test": {
+                        "host": "localhost",
+                        "compose_file": "docker/docker-compose.yml",
+                    },
+                },
+                "notes": [],
+            }
+            config.save_config(data=data)
+            print("done.")
+        except ConfigError as e:
+            print(f"failed!\n    {e}")
+            sys.exit(1)
 
     # Step 4: Install Claude integration files
     print(f"  Installing Claude integration files...", end=" ")
@@ -133,14 +152,6 @@ def cmd_init(args):
     print(f"  - Run 'rundbat create-env dev' to provision a database")
     print(f"  - Run 'rundbat env list' to see environments")
 
-
-def cmd_mcp(args):
-    """Deprecated — the MCP server has been removed."""
-    print("The rundbat MCP server has been removed.", file=sys.stderr)
-    print("", file=sys.stderr)
-    print("rundbat now integrates with Claude via native .claude/ directories.", file=sys.stderr)
-    print("Run 'rundbat install' to set up Claude integration files.", file=sys.stderr)
-    sys.exit(1)
 
 
 def cmd_install(args):
@@ -302,6 +313,53 @@ def cmd_check_drift(args):
     _output(result, args.json)
 
 
+def cmd_deploy(args):
+    """Deploy to a named remote host via Docker context."""
+    from rundbat import deploy
+    from rundbat.deploy import DeployError
+
+    try:
+        result = deploy.deploy(args.name, dry_run=args.dry_run,
+                               no_build=args.no_build)
+    except DeployError as e:
+        _error(str(e), args.json)
+        return
+
+    if args.json:
+        _output(result, args.json)
+    else:
+        if result.get("status") == "dry_run":
+            print(f"Dry run — would execute:\n  {result['command']}")
+        else:
+            print(f"Deployed via context '{result['context']}'")
+            if result.get("url"):
+                print(f"  {result['url']}")
+
+
+def cmd_deploy_init(args):
+    """Set up a new deployment target."""
+    from rundbat import deploy
+    from rundbat.deploy import DeployError
+
+    try:
+        result = deploy.init_deployment(
+            args.name, args.host,
+            compose_file=args.compose_file,
+            hostname=args.hostname,
+        )
+    except DeployError as e:
+        _error(str(e), args.json)
+        return
+
+    if args.json:
+        _output(result, args.json)
+    else:
+        print(f"Deployment '{result['deployment']}' configured.")
+        print(f"  Docker context: {result['context']}")
+        print(f"  Host: {result['host']}")
+        print(f"\nRun 'rundbat deploy {result['deployment']}' to deploy.")
+
+
 def cmd_init_docker(args):
     """Scaffold a docker/ directory for the project."""
     from rundbat import generators, config
@@ -456,6 +514,8 @@ Commands:
   rundbat validate <env>     Full environment validation
   rundbat set-secret <env>   Store a secret
   rundbat check-drift <env>  Detect app name changes
+  rundbat deploy <name>      Deploy to a remote host
+  rundbat deploy-init <name> Set up a deployment target
   rundbat env list           List configured environments
   rundbat env connstr <env>  Get a connection string""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -473,6 +533,10 @@ Commands:
         "--app-name",
         help="Application name (auto-detected if not provided)",
     )
+    init_parser.add_argument(
+        "--force", action="store_true", default=False,
+        help="Overwrite rundbat.yaml even if it already exists",
+    )
     init_parser.set_defaults(func=cmd_init)
 
     # rundbat install
@@ -489,11 +553,6 @@ Commands:
     _add_json_flag(uninstall_parser)
     uninstall_parser.set_defaults(func=cmd_uninstall)
 
-    # rundbat mcp (deprecated)
-    mcp_parser = subparsers.add_parser(
-        "mcp", help="(deprecated) Use 'rundbat install' instead",
-    )
-    mcp_parser.set_defaults(func=cmd_mcp)
 
     # rundbat discover
     discover_parser = subparsers.add_parser(
@@ -572,6 +631,46 @@ Commands:
     _add_env_arg(check_drift_parser, nargs="?", default="dev")
     _add_json_flag(check_drift_parser)
     check_drift_parser.set_defaults(func=cmd_check_drift)
+
+    # rundbat deploy <name>
+    deploy_parser = subparsers.add_parser(
+        "deploy", help="Deploy to a named remote host via Docker context",
+    )
+    deploy_parser.add_argument(
+        "name", help="Deployment name (e.g., prod, staging)",
+    )
+    deploy_parser.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Show the command without executing",
+    )
+    deploy_parser.add_argument(
+        "--no-build", action="store_true", default=False,
+        help="Skip the --build flag (don't rebuild images)",
+    )
+    _add_json_flag(deploy_parser)
+    deploy_parser.set_defaults(func=cmd_deploy)
+
+    # rundbat deploy-init <name> --host <ssh://user@host>
+    deploy_init_parser = subparsers.add_parser(
+        "deploy-init", help="Set up a new deployment target",
+    )
+    deploy_init_parser.add_argument(
+        "name", help="Deployment name (e.g., prod, staging)",
+    )
+    deploy_init_parser.add_argument(
+        "--host", required=True,
+        help="SSH URL for the remote Docker host (e.g., ssh://root@host)",
+    )
+    deploy_init_parser.add_argument(
+        "--compose-file",
+        help="Path to compose file (default: docker/docker-compose.yml)",
+    )
+    deploy_init_parser.add_argument(
+        "--hostname",
+        help="App hostname for post-deploy message (e.g., app.example.com)",
+    )
+    _add_json_flag(deploy_init_parser)
+    deploy_init_parser.set_defaults(func=cmd_deploy_init)
 
     # rundbat init-docker
     init_docker_parser = subparsers.add_parser(

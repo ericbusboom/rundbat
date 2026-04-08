@@ -1,4 +1,3 @@
-import json
 import os
 import subprocess
 
@@ -10,12 +9,27 @@ app = Flask(__name__)
 
 
 def load_config():
+    # If DATABASE_URL is already in the environment (e.g. Docker), use env vars directly
+    if os.environ.get("DATABASE_URL"):
+        return {
+            "DATABASE_URL": os.environ["DATABASE_URL"],
+            "REDIS_URL": os.environ["REDIS_URL"],
+        }
+    # Otherwise load from dotconfig
     env = os.environ.get("APP_ENV", "dev")
     result = subprocess.run(
-        ["dotconfig", "load", "-d", env, "--json", "--flat", "-S"],
+        ["dotconfig", "load", "-d", env, "--stdout"],
         capture_output=True, text=True, check=True,
     )
-    return json.loads(result.stdout)
+    config = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, _, value = line.partition("=")
+            config[key.strip()] = value.strip()
+    return config
 
 
 config = load_config()

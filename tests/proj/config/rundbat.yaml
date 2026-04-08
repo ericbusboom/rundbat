@@ -2,4 +2,15 @@ app_name: proj
 app_name_source: directory name (proj)
 container_template: '{app}-{env}-pg'
 database_template: '{app}_{env}'
+deployments:
+  dev:
+    compose_file: docker/docker-compose.yml
+    host: localhost
+  prod:
+    compose_file: docker/docker-compose.prod.yml
+    host: ''
+    hostname: ''
+  test:
+    compose_file: docker/docker-compose.yml
+    host: localhost
 notes: []

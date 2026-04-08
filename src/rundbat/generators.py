@@ -293,13 +293,9 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         "# Rebuild and restart",
         "restart: build up",
         "",
-        "# Push image to registry or remote host",
-        "push:",
-        f'    docker push {app_name}:latest',
-        "",
         "# Deploy to a remote environment",
-        "deploy:",
-        "    docker compose -f docker/docker-compose.yml up -d --pull always",
+        'deploy env="prod":',
+        "    rundbat deploy {{env}}",
         "",
     ]
 
@@ -397,6 +393,60 @@ def generate_env_example(
 
 
 # ---------------------------------------------------------------------------
+# .dockerignore generation
+# ---------------------------------------------------------------------------
+
+_DOCKERIGNORE_CONTENT = """\
+# Version control
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Dependencies (rebuilt inside container)
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# rundbat / dotconfig
+config/
+docker/
+
+# Docs and planning artifacts
+docs/
+
+# AI assistant context
+.claude/
+.mcp.json
+CLAUDE.md
+AGENTS.md
+
+# Tests
+tests/
+
+# Local env overrides (real .env injected at runtime)
+.env
+.env.*
+!.env.example
+
+# Build / coverage artifacts
+dist/
+build/
+.coverage
+htmlcov/
+*.egg-info/
+"""
+
+
+def generate_dockerignore() -> str:
+    """Return the content of a .dockerignore file for the project root."""
+    return _DOCKERIGNORE_CONTENT
+
+
+# ---------------------------------------------------------------------------
 # High-level orchestration
 # ---------------------------------------------------------------------------
 
@@ -440,6 +490,12 @@ def init_docker(
     env_example = docker_dir / ".env.example"
     env_example.write_text(generate_env_example(app_name, framework, services))
     generated.append(str(env_example.relative_to(project_dir)))
+
+    # .dockerignore (project root — build context is project root)
+    dockerignore = project_dir / ".dockerignore"
+    if not dockerignore.exists():
+        dockerignore.write_text(generate_dockerignore())
+        generated.append(".dockerignore")
 
     return {
         "status": "created",
