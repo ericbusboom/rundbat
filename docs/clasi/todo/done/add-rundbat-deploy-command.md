@@ -1,8 +1,10 @@
 ---
-status: in-progress
+status: done
 sprint: '004'
 tickets:
 - 004-001
+- 004-002
+- 004-003
 ---
 
 # Add `rundbat deploy <name>` CLI command

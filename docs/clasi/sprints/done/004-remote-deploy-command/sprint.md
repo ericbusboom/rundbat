@@ -1,7 +1,7 @@
 ---
-id: "004"
-title: "Remote Deploy Command"
-status: planning
+id: '004'
+title: Remote Deploy Command
+status: done
 branch: sprint/004-remote-deploy-command
 use-cases:
 - SUC-001
