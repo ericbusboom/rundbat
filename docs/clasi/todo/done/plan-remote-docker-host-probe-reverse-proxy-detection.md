@@ -1,5 +1,9 @@
 ---
-status: pending
+status: done
+sprint: '006'
+tickets:
+- 006-001
+- 006-002
 ---
 
 # Plan: Remote Docker Host Probe — Reverse Proxy Detection

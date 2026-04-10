@@ -198,3 +198,42 @@ def test_local_docker_platform_unknown():
     with patch("rundbat.discovery.platform") as mock_plat:
         mock_plat.machine.return_value = "riscv64"
         assert local_docker_platform() == "linux/riscv64"
+
+
+# ---------------------------------------------------------------------------
+# detect_caddy
+# ---------------------------------------------------------------------------
+
+def test_detect_caddy_running(monkeypatch):
+    """detect_caddy returns running=True when docker ps output is non-empty."""
+    from rundbat.discovery import detect_caddy
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": "caddy", "stderr": "", "returncode": 0}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_caddy("test-context")
+    assert result["running"] is True
+    assert result["container"] == "caddy"
+
+
+def test_detect_caddy_not_running(monkeypatch):
+    """detect_caddy returns running=False when docker ps output is empty."""
+    from rundbat.discovery import detect_caddy
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": "", "stderr": "", "returncode": 0}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_caddy("test-context")
+    assert result["running"] is False
+    assert result["container"] is None
+
+
+def test_detect_caddy_passes_context(monkeypatch):
+    """detect_caddy includes --context in the docker command."""
+    from rundbat.discovery import detect_caddy
+    captured_cmd = []
+    def mock_run(cmd, timeout=10):
+        captured_cmd.extend(cmd)
+        return {"success": True, "stdout": "", "stderr": "", "returncode": 0}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    detect_caddy("my-remote")
+    assert "--context" in captured_cmd
+    assert "my-remote" in captured_cmd

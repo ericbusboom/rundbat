@@ -154,6 +154,18 @@ def detect_existing_config() -> dict:
     }
 
 
+def detect_caddy(context: str) -> dict:
+    """Detect if Caddy reverse proxy is running on a remote Docker host."""
+    cmd = ["docker", "--context", context, "ps",
+           "--filter", "name=caddy", "--format", "{{.Names}}"]
+    result = _run_command(cmd)
+    running = bool(result["success"] and result["stdout"].strip())
+    return {
+        "running": running,
+        "container": result["stdout"].strip() if running else None,
+    }
+
+
 def discover_system() -> dict:
     """Run full system discovery and return capabilities report."""
     return {

@@ -244,6 +244,42 @@ def cmd_deploy_init(args):
         print(f"\nRun 'rundbat deploy {result['deployment']}' to deploy.")
 
 
+def cmd_probe(args):
+    """Probe a deployment target for reverse proxy detection."""
+    from rundbat import config
+    from rundbat.discovery import detect_caddy
+    from rundbat.config import ConfigError
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(str(e), args.json)
+        return
+
+    deployments = cfg.get("deployments", {})
+    name = args.name
+    if name not in deployments:
+        _error(f"Deployment '{name}' not found in rundbat.yaml", args.json)
+        return
+
+    dep = deployments[name]
+    ctx = dep.get("docker_context")
+    if not ctx:
+        _error(f"Deployment '{name}' has no docker_context", args.json)
+        return
+
+    caddy = detect_caddy(ctx)
+    reverse_proxy = "caddy" if caddy["running"] else "none"
+    dep["reverse_proxy"] = reverse_proxy
+    deployments[name] = dep
+    cfg["deployments"] = deployments
+    config.save_config(data=cfg)
+
+    result = {"deployment": name, "reverse_proxy": reverse_proxy,
+              "container": caddy.get("container")}
+    _output(result, args.json)
+
+
 def cmd_init_docker(args):
     """Scaffold a docker/ directory for the project."""
     from rundbat import generators, config
@@ -266,12 +302,22 @@ def cmd_init_docker(args):
             framework = {"language": "unknown", "framework": cfg["framework"], "entry_point": ""}
         services = cfg.get("services")
         deployments = cfg.get("deployments")
-        # Check for deployment hostname
-        for dep in (deployments or {}).values():
-            if dep.get("hostname"):
+        # Check for deployment hostname and Caddy
+        caddy_deployment = None
+        for dep_name, dep in (deployments or {}).items():
+            if dep.get("hostname") and not hostname:
                 hostname = dep["hostname"]
                 swarm = dep.get("swarm", False)
-                break
+            if dep.get("reverse_proxy") == "caddy" and not caddy_deployment:
+                caddy_deployment = dep_name
+
+        # --hostname flag overrides config
+        if getattr(args, "hostname", None):
+            hostname = args.hostname
+
+        # Warn if Caddy detected but no hostname
+        if caddy_deployment and not hostname:
+            print(f"Caddy detected on deployment '{caddy_deployment}' — pass --hostname to include reverse proxy labels")
     except ConfigError:
         pass
 
@@ -331,6 +377,11 @@ Commands:
     # rundbat init-docker
     init_docker_parser = subparsers.add_parser(
         "init-docker", help="Scaffold a docker/ directory (Dockerfile, compose, Justfile)",
+    )
+    init_docker_parser.add_argument(
+        "--hostname",
+        default=None,
+        help="App hostname for Caddy reverse proxy labels (e.g. app.example.com)",
     )
     _add_json_flag(init_docker_parser)
     init_docker_parser.set_defaults(func=cmd_init_docker)
@@ -392,6 +443,16 @@ Commands:
     )
     _add_json_flag(deploy_init_parser)
     deploy_init_parser.set_defaults(func=cmd_deploy_init)
+
+    # rundbat probe <name>
+    probe_parser = subparsers.add_parser(
+        "probe", help="Detect reverse proxy on a deployment target",
+    )
+    probe_parser.add_argument(
+        "name", help="Deployment name (from rundbat.yaml)",
+    )
+    _add_json_flag(probe_parser)
+    probe_parser.set_defaults(func=cmd_probe)
 
     args = parser.parse_args()
 

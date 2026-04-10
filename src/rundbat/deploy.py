@@ -550,6 +550,10 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
     # Detect remote platform
     remote_platform = _detect_remote_platform(ctx)
 
+    # Detect Caddy reverse proxy on remote host
+    from rundbat.discovery import detect_caddy
+    caddy_info = detect_caddy(ctx)
+
     # Auto-suggest strategy if not provided
     if not build_strategy:
         from rundbat.discovery import local_docker_platform
@@ -566,6 +570,7 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         "host": host,
         "build_strategy": build_strategy,
     }
+    deploy_entry["reverse_proxy"] = "caddy" if caddy_info["running"] else "none"
     if remote_platform:
         deploy_entry["platform"] = remote_platform
     if compose_file:

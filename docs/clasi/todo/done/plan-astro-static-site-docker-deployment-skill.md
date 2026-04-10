@@ -1,5 +1,9 @@
 ---
-status: pending
+status: done
+sprint: '006'
+tickets:
+- 006-003
+- 006-004
 ---
 
 # Plan: Astro Static Site Docker Deployment Skill

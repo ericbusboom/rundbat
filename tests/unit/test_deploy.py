@@ -791,3 +791,39 @@ class TestInitDeployment:
             result = init_deployment("prod", "ssh://root@host")
 
         assert result["build_strategy"] == "ssh-transfer"
+
+    @patch("rundbat.deploy._detect_remote_platform")
+    @patch("rundbat.deploy.verify_access")
+    @patch("rundbat.deploy.create_context")
+    @patch("rundbat.deploy._context_exists")
+    @patch("rundbat.deploy._find_context_for_host")
+    def test_init_deployment_detects_caddy(
+        self, mock_find, mock_exists, mock_create, mock_verify,
+        mock_platform, tmp_path, monkeypatch,
+    ):
+        """init_deployment saves reverse_proxy field from Caddy detection."""
+        monkeypatch.chdir(tmp_path)
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        (config_dir / "rundbat.yaml").write_text(yaml.dump({
+            "app_name": "myapp",
+            "notes": [],
+        }))
+
+        mock_find.return_value = None
+        mock_exists.return_value = False
+        mock_create.return_value = "docker1.example.com"
+        mock_verify.return_value = {"status": "ok"}
+        mock_platform.return_value = "linux/amd64"
+
+        with patch("rundbat.discovery.detect_caddy",
+                   return_value={"running": True, "container": "caddy"}):
+            with patch("rundbat.discovery.local_docker_platform",
+                       return_value="linux/amd64"):
+                result = init_deployment("prod", "ssh://root@docker1.example.com")
+
+        assert result["status"] == "ok"
+
+        # Verify reverse_proxy was saved in config
+        saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
+        assert saved["deployments"]["prod"]["reverse_proxy"] == "caddy"
