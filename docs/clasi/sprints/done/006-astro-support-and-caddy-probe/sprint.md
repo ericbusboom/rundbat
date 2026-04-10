@@ -1,13 +1,16 @@
 ---
-id: "006"
-title: "Astro Support and Caddy Probe"
-status: planning
+id: '006'
+title: Astro Support and Caddy Probe
+status: done
 branch: sprint/006-astro-support-and-caddy-probe
-use-cases: [SUC-001, SUC-002, SUC-003]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
 todos:
-  - plan-astro-static-site-docker-deployment-skill.md
-  - plan-auto-detect-caddy-and-include-labels-in-docker-compose.md
-  - plan-remote-docker-host-probe-reverse-proxy-detection.md
+- plan-astro-static-site-docker-deployment-skill.md
+- plan-auto-detect-caddy-and-include-labels-in-docker-compose.md
+- plan-remote-docker-host-probe-reverse-proxy-detection.md
 ---
 
 # Sprint 006: Astro Support and Caddy Probe
