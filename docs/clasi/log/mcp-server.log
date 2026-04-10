@@ -308,3 +308,25 @@ sprint_id
 2026-04-08T10:10:26 [INFO] [team-lead] CALL list_tickets({"sprint_id": "005"})
 2026-04-08T10:10:26 [INFO] [team-lead]   OK list_tickets -> ([TextContent(type='text', text='[\n  {\n    "id": "001",\n    "title": "Remove cut CLI commands and handlers",\n    "status": "done",\n    "sprint_id": "005",\n    "path": "/Users/eric/proj/ai-project/rundbat/docs/clasi/sprints/005-slim-cli-surface/tickets/done/001-remove-cut-cli-commands-and-handlers.md"\n  },\n  {\n    "id": "002",\n    "title": "Rewrite skills and agent docs",\n    "status": "done",\n    "sprint_id": "005",\n    "path": "/Users/eric/proj/ai-project/rundbat/docs/clasi/sprints...
 2026-04-08T10:10:54 [INFO] [team-lead] CALL close_sprint({"sprint_id": "005", "branch_name": "sprint/005-slim-cli-surface", "main_branch": "main", "push_tags": "True", "delete_branch": "True"})
+2026-04-09T16:13:27 [INFO] ============================================================
+2026-04-09T16:13:27 [INFO] CLASI MCP server starting
+2026-04-09T16:13:27 [INFO]   serving: team-lead (tier 0)
+2026-04-09T16:13:27 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-09T16:13:27 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-09T16:13:27 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-09T16:13:27 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-09T16:13:27 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-09T16:13:27 [INFO]   tools registered: 30
+2026-04-09T16:13:27 [INFO] CLASI MCP server ready
+2026-04-09T16:13:33 [INFO] ============================================================
+2026-04-09T16:13:33 [INFO] CLASI MCP server starting
+2026-04-09T16:13:33 [INFO]   serving: team-lead (tier 0)
+2026-04-09T16:13:33 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-09T16:13:33 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-09T16:13:33 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-09T16:13:33 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-09T16:13:33 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-09T16:13:33 [INFO]   tools registered: 30
+2026-04-09T16:13:33 [INFO] CLASI MCP server ready
+2026-04-09T16:16:35 [INFO] [team-lead] CALL get_version({})
+2026-04-09T16:16:35 [INFO] [team-lead]   OK get_version -> ([TextContent(type='text', text='{\n  "version": "0.20260409.5"\n}', annotations=None, meta=None)], {'result': '{\n  "version": "0.20260409.5"\n}'})
