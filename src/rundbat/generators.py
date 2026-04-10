@@ -28,6 +28,8 @@ def detect_framework(project_dir: Path) -> dict[str, str]:
                 return {"language": "node", "framework": "next", "entry_point": "npm start"}
             if "express" in deps:
                 return {"language": "node", "framework": "express", "entry_point": "npm start"}
+            if "astro" in deps:
+                return {"language": "node", "framework": "astro", "entry_point": "nginx"}
             return {"language": "node", "framework": "node", "entry_point": "npm start"}
         except (json.JSONDecodeError, KeyError):
             return {"language": "node", "framework": "node", "entry_point": "npm start"}
@@ -89,11 +91,72 @@ EXPOSE ${{PORT:-8000}}
 CMD {cmd}
 """
 
+_DOCKERFILE_ASTRO = """\
+# --- Deps stage ---
+FROM node:20-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+
+# --- Build stage ---
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+# --- Runtime stage ---
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]
+"""
+
+
+def generate_nginx_conf() -> str:
+    """Generate a minimal production nginx config for Astro static sites."""
+    return """\
+server {
+    listen 8080;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # SPA fallback
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache hashed assets for 1 year
+    location ~* \\.[0-9a-f]{8}\\.(js|css)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # No-cache on HTML
+    location ~* \\.html$ {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+
+    # Gzip
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+
+    # Security headers
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+}
+"""
+
 
 def generate_dockerfile(framework: dict[str, str]) -> str:
     """Generate a Dockerfile for the detected framework."""
     lang = framework.get("language", "unknown")
     fw = framework.get("framework", "unknown")
+
+    if fw == "astro":
+        return _DOCKERFILE_ASTRO
 
     if lang == "node":
         if fw == "next":
@@ -191,7 +254,13 @@ def generate_compose(
 ) -> str:
     """Generate a docker-compose.yml string."""
     lang = framework.get("language", "node")
-    port = "3000" if lang == "node" else "8000"
+    fw = framework.get("framework", "")
+    if fw == "astro":
+        port = "8080"
+    elif lang == "node":
+        port = "3000"
+    else:
+        port = "8000"
 
     compose: dict[str, Any] = {"services": {}, "volumes": {}}
 
@@ -387,16 +456,27 @@ def generate_env_example(
 ) -> str:
     """Generate a .env.example with placeholders for secrets."""
     lang = framework.get("language", "node")
-    port = "3000" if lang == "node" else "8000"
+    fw = framework.get("framework", "")
+    if fw == "astro":
+        port = "8080"
+    elif lang == "node":
+        port = "3000"
+    else:
+        port = "8000"
 
     lines = [
         f"# {app_name} environment configuration",
         f"# Copy to .env and fill in the values",
         "",
         f"PORT={port}",
-        f"NODE_ENV=production" if lang == "node" else "PYTHON_ENV=production",
-        "",
     ]
+
+    if lang == "node" and fw != "astro":
+        lines.append("NODE_ENV=production")
+    elif lang == "python":
+        lines.append("PYTHON_ENV=production")
+
+    lines.append("")
 
     if services:
         for svc in services:
@@ -595,6 +675,11 @@ def init_docker(
     dockerfile = docker_dir / "Dockerfile"
     dockerfile.write_text(generate_dockerfile(framework))
     generated.append(str(dockerfile.relative_to(project_dir)))
+
+    if framework.get("framework") == "astro":
+        nginx_conf = docker_dir / "nginx.conf"
+        nginx_conf.write_text(generate_nginx_conf())
+        generated.append(str(nginx_conf.relative_to(project_dir)))
 
     # docker-compose.yml
     compose = docker_dir / "docker-compose.yml"

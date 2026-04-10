@@ -12,6 +12,7 @@ from rundbat.generators import (
     generate_justfile,
     generate_env_example,
     generate_github_workflow,
+    generate_nginx_conf,
     init_docker,
     add_service,
 )
@@ -65,6 +66,24 @@ class TestDetectFramework:
         result = detect_framework(tmp_path)
         assert result["language"] == "unknown"
 
+    def test_astro(self, tmp_path):
+        """detect_framework returns astro for package.json with astro dep."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"dependencies": {"astro": "^4.0.0"}})
+        )
+        result = detect_framework(tmp_path)
+        assert result["language"] == "node"
+        assert result["framework"] == "astro"
+        assert result["entry_point"] == "nginx"
+
+    def test_astro_in_devdeps(self, tmp_path):
+        """Astro is detected even when only in devDependencies."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"devDependencies": {"astro": "^4.0.0"}})
+        )
+        result = detect_framework(tmp_path)
+        assert result["framework"] == "astro"
+
 
 # ---------------------------------------------------------------------------
 # Dockerfile generation
@@ -99,6 +118,15 @@ class TestGenerateDockerfile:
     def test_unknown(self):
         df = generate_dockerfile({"language": "unknown", "framework": "unknown"})
         assert "TODO" in df
+
+    def test_astro(self):
+        """Astro Dockerfile has 3 stages ending in nginx:alpine on port 8080."""
+        fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
+        result = generate_dockerfile(fw)
+        assert "nginx:alpine" in result
+        assert "EXPOSE 8080" in result
+        assert "COPY --from=build /app/dist" in result
+        assert "node:20-alpine" in result
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +183,12 @@ class TestGenerateCompose:
         compose_str = generate_compose("myapp", {"language": "node"}, services)
         compose = yaml.safe_load(compose_str)
         assert "healthcheck" in compose["services"]["postgres"]
+
+    def test_astro_port(self):
+        """generate_compose uses port 8080 for Astro framework."""
+        fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
+        result = generate_compose("myapp", fw)
+        assert "8080" in result
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +302,27 @@ class TestGenerateEnvExample:
         env = generate_env_example("myapp", {"language": "node"}, services)
         assert "REDIS_URL" in env
 
+    def test_astro_port_no_node_env(self):
+        """generate_env_example uses port 8080 and omits NODE_ENV for Astro."""
+        fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
+        result = generate_env_example("myapp", fw)
+        assert "PORT=8080" in result
+        assert "NODE_ENV" not in result
+
+
+# ---------------------------------------------------------------------------
+# generate_nginx_conf
+# ---------------------------------------------------------------------------
+
+class TestGenerateNginxConf:
+    def test_nginx_conf(self):
+        """generate_nginx_conf returns config with listen 8080 and try_files."""
+        result = generate_nginx_conf()
+        assert "listen 8080" in result
+        assert "try_files" in result
+        assert "gzip on" in result
+        assert "X-Frame-Options" in result
+
 
 # ---------------------------------------------------------------------------
 # init_docker (integration)
@@ -303,6 +358,17 @@ class TestInitDocker:
         init_docker(tmp_path, "testapp")
         init_docker(tmp_path, "testapp")  # should not error
         assert (tmp_path / "docker" / "Dockerfile").exists()
+
+    def test_astro_writes_nginx_conf(self, tmp_path):
+        """init_docker creates docker/nginx.conf for Astro projects."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"dependencies": {"astro": "^4.0.0"}})
+        )
+        fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
+        result = init_docker(tmp_path, "myapp", fw)
+        nginx_conf = tmp_path / "docker" / "nginx.conf"
+        assert nginx_conf.exists()
+        assert "docker/nginx.conf" in result["files"]
 
 
 # ---------------------------------------------------------------------------
