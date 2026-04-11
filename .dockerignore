@@ -1,0 +1,41 @@
+# Version control
+.git/
+.gitignore
+
+# CI/CD
+.github/
+
+# Dependencies (rebuilt inside container)
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# rundbat / dotconfig
+config/
+docker/
+
+# Docs and planning artifacts
+docs/
+
+# AI assistant context
+.claude/
+.mcp.json
+CLAUDE.md
+AGENTS.md
+
+# Tests
+tests/
+
+# Local env overrides (real .env injected at runtime)
+.env
+.env.*
+!.env.example
+
+# Build / coverage artifacts
+dist/
+build/
+.coverage
+htmlcov/
+*.egg-info/
