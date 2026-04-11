@@ -226,6 +226,40 @@ def test_detect_caddy_not_running(monkeypatch):
     assert result["container"] is None
 
 
+# ---------------------------------------------------------------------------
+# detect_gh
+# ---------------------------------------------------------------------------
+
+def test_detect_gh_installed_authenticated(monkeypatch):
+    from rundbat.discovery import detect_gh
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": "Logged in", "stderr": "", "returncode": 0}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_gh()
+    assert result["installed"] is True
+    assert result["authenticated"] is True
+
+
+def test_detect_gh_installed_not_authenticated(monkeypatch):
+    from rundbat.discovery import detect_gh
+    def mock_run(cmd, timeout=10):
+        return {"success": False, "stdout": "", "stderr": "not logged in", "returncode": 1}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_gh()
+    assert result["installed"] is True
+    assert result["authenticated"] is False
+
+
+def test_detect_gh_not_installed(monkeypatch):
+    from rundbat.discovery import detect_gh
+    def mock_run(cmd, timeout=10):
+        return {"success": False, "stdout": "", "stderr": "Command not found: gh", "returncode": -1}
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_gh()
+    assert result["installed"] is False
+    assert result["authenticated"] is False
+
+
 def test_detect_caddy_passes_context(monkeypatch):
     """detect_caddy includes --context in the docker command."""
     from rundbat.discovery import detect_caddy

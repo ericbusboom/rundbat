@@ -17,6 +17,10 @@ from rundbat.deploy import (
     _ssh_cmd,
     _get_buildable_images,
     _cleanup_remote,
+    _build_docker_run_cmd,
+    _deploy_run,
+    _prepare_env,
+    _get_github_repo,
     create_context,
     verify_access,
     deploy,
@@ -827,3 +831,132 @@ class TestInitDeployment:
         # Verify reverse_proxy was saved in config
         saved = yaml.safe_load((config_dir / "rundbat.yaml").read_text())
         assert saved["deployments"]["prod"]["reverse_proxy"] == "caddy"
+
+
+# ---------------------------------------------------------------------------
+# _build_docker_run_cmd
+# ---------------------------------------------------------------------------
+
+class TestBuildDockerRunCmd:
+    def test_basic_command(self):
+        cmd = _build_docker_run_cmd("myapp", "ghcr.io/owner/myapp", "8080")
+        assert "docker run -d --name myapp" in cmd
+        assert "--env-file .env" in cmd
+        assert "-p 8080:8080" in cmd
+        assert "--restart unless-stopped" in cmd
+        assert "ghcr.io/owner/myapp:latest" in cmd
+
+    def test_caddy_labels(self):
+        cmd = _build_docker_run_cmd(
+            "myapp", "ghcr.io/owner/myapp", "8080",
+            hostname="app.example.com",
+        )
+        assert "caddy=app.example.com" in cmd
+        assert "caddy.reverse_proxy" in cmd
+
+    def test_no_caddy_without_hostname(self):
+        cmd = _build_docker_run_cmd("myapp", "ghcr.io/owner/myapp", "8080")
+        assert "caddy" not in cmd
+
+
+# ---------------------------------------------------------------------------
+# _deploy_run
+# ---------------------------------------------------------------------------
+
+class TestDeployRun:
+    @patch("rundbat.deploy.subprocess.run")
+    @patch("rundbat.deploy._prepare_env")
+    def test_dry_run(self, mock_env, mock_run):
+        deploy_cfg = {
+            "docker_context": "default",
+            "docker_run_cmd": "docker run -d --name myapp ghcr.io/owner/myapp:latest",
+            "image": "ghcr.io/owner/myapp",
+        }
+        result = _deploy_run("prod", deploy_cfg, "myapp", dry_run=True)
+        assert result["status"] == "dry_run"
+        assert result["strategy"] == "run"
+        assert len(result["commands"]) == 4
+        mock_run.assert_not_called()
+        mock_env.assert_not_called()
+
+    def test_missing_docker_run_cmd(self):
+        deploy_cfg = {"docker_context": "default"}
+        with pytest.raises(DeployError, match="no docker_run_cmd"):
+            _deploy_run("prod", deploy_cfg, "myapp")
+
+
+# ---------------------------------------------------------------------------
+# _prepare_env
+# ---------------------------------------------------------------------------
+
+class TestPrepareEnv:
+    def test_noop_without_dotconfig(self):
+        """No-op when env_source is not dotconfig."""
+        deploy_cfg = {"env_source": "file", "host": "ssh://root@host"}
+        _prepare_env("prod", deploy_cfg, "myapp")  # should not raise
+
+    @patch("rundbat.deploy.subprocess.run")
+    @patch("rundbat.config.load_env")
+    def test_scp_transfer(self, mock_load_env, mock_run):
+        mock_load_env.return_value = "KEY=value\n"
+        mock_run.return_value = type("R", (), {"returncode": 0, "stderr": ""})()
+
+        deploy_cfg = {
+            "env_source": "dotconfig",
+            "host": "ssh://root@docker1.example.com",
+        }
+        _prepare_env("prod", deploy_cfg, "myapp")
+
+        mock_load_env.assert_called_once_with("prod")
+        mock_run.assert_called_once()
+        scp_args = mock_run.call_args[0][0]
+        assert scp_args[0] == "scp"
+        assert "root@docker1.example.com:/opt/myapp/.env" in scp_args[-1]
+
+
+# ---------------------------------------------------------------------------
+# _get_github_repo
+# ---------------------------------------------------------------------------
+
+class TestGetGitHubRepo:
+    @patch("rundbat.deploy.subprocess.run")
+    def test_ssh_url(self, mock_run):
+        mock_run.return_value = type("R", (), {
+            "returncode": 0,
+            "stdout": "git@github.com:owner/repo.git\n",
+        })()
+        assert _get_github_repo() == "owner/repo"
+
+    @patch("rundbat.deploy.subprocess.run")
+    def test_https_url(self, mock_run):
+        mock_run.return_value = type("R", (), {
+            "returncode": 0,
+            "stdout": "https://github.com/owner/repo.git\n",
+        })()
+        assert _get_github_repo() == "owner/repo"
+
+    @patch("rundbat.deploy.subprocess.run")
+    def test_https_no_git_suffix(self, mock_run):
+        mock_run.return_value = type("R", (), {
+            "returncode": 0,
+            "stdout": "https://github.com/owner/repo\n",
+        })()
+        assert _get_github_repo() == "owner/repo"
+
+    @patch("rundbat.deploy.subprocess.run")
+    def test_non_github_raises(self, mock_run):
+        mock_run.return_value = type("R", (), {
+            "returncode": 0,
+            "stdout": "https://gitlab.com/owner/repo.git\n",
+        })()
+        with pytest.raises(DeployError, match="not a GitHub"):
+            _get_github_repo()
+
+    @patch("rundbat.deploy.subprocess.run")
+    def test_no_remote(self, mock_run):
+        mock_run.return_value = type("R", (), {
+            "returncode": 1,
+            "stdout": "",
+        })()
+        with pytest.raises(DeployError, match="No git remote"):
+            _get_github_repo()

@@ -173,7 +173,7 @@ def cmd_init(args):
     print(f"  App name:  {app_name}")
     print(f"  Source:    {app_name_source}")
     print(f"\nNext steps:")
-    print(f"  - Run 'rundbat init-docker' to generate Docker artifacts")
+    print(f"  - Run 'rundbat generate' to generate Docker artifacts")
     print(f"  - Run 'rundbat deploy-init prod --host ssh://user@host' to set up a deploy target")
 
 
@@ -221,6 +221,8 @@ def cmd_deploy_init(args):
             hostname=args.hostname,
             build_strategy=args.strategy,
             ssh_key=args.ssh_key,
+            deploy_mode=getattr(args, "deploy_mode", None),
+            image=getattr(args, "image", None),
         )
     except DeployError as e:
         _error(str(e), args.json)
@@ -280,8 +282,30 @@ def cmd_probe(args):
     _output(result, args.json)
 
 
+def cmd_generate(args):
+    """Generate Docker artifacts from rundbat.yaml config."""
+    from rundbat import generators, config
+    from rundbat.config import ConfigError
+
+    project_dir = Path.cwd()
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(f"Cannot load config: {e}. Run 'rundbat init' first.", args.json)
+        return
+
+    result = generators.generate_artifacts(
+        project_dir, cfg,
+        deployment=getattr(args, "deployment", None),
+    )
+    if "error" in result:
+        _error(result["error"], args.json)
+    _output(result, args.json)
+
+
 def cmd_init_docker(args):
-    """Scaffold a docker/ directory for the project."""
+    """Scaffold a docker/ directory for the project (deprecated)."""
     from rundbat import generators, config
     from rundbat.config import ConfigError
 
@@ -331,6 +355,249 @@ def cmd_init_docker(args):
 
 
 # ---------------------------------------------------------------------------
+# Lifecycle commands: build, up, down, logs
+# ---------------------------------------------------------------------------
+
+def _resolve_deployment(name: str, as_json: bool) -> tuple[dict, dict] | None:
+    """Load config and find a deployment by name. Returns (cfg, deploy_cfg) or exits."""
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(f"Cannot load config: {e}", as_json)
+        return None
+
+    deployments = cfg.get("deployments", {})
+    if name not in deployments:
+        available = ", ".join(deployments.keys()) if deployments else "none"
+        _error(f"Deployment '{name}' not found. Available: {available}", as_json)
+        return None
+
+    return cfg, deployments[name]
+
+
+def _compose_file_for_deployment(name: str) -> Path:
+    """Return the expected compose file path for a deployment."""
+    return Path(f"docker/docker-compose.{name}.yml")
+
+
+def cmd_build(args):
+    """Build images for a deployment."""
+    import os
+    import subprocess
+
+    resolved = _resolve_deployment(args.name, args.json)
+    if not resolved:
+        return
+    cfg, dep_cfg = resolved
+
+    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    build_strategy = dep_cfg.get("build_strategy", "context")
+
+    # github-actions strategy: trigger build via gh CLI
+    if build_strategy == "github-actions":
+        from rundbat.discovery import detect_gh
+        from rundbat.deploy import _get_github_repo, DeployError
+
+        gh = detect_gh()
+        if not gh["installed"]:
+            _error("GitHub CLI (gh) is not installed. Install from https://cli.github.com/", args.json)
+            return
+        if not gh["authenticated"]:
+            _error("GitHub CLI is not authenticated. Run 'gh auth login' first.", args.json)
+            return
+
+        try:
+            repo = _get_github_repo()
+        except DeployError as e:
+            _error(str(e), args.json)
+            return
+
+        result = subprocess.run(
+            ["gh", "workflow", "run", "build.yml", "--repo", repo],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            _error(f"Failed to trigger build: {result.stderr.strip()}", args.json)
+            return
+
+        if args.json:
+            _output({"status": "triggered", "repo": repo, "workflow": "build.yml"}, True)
+        else:
+            print(f"Build triggered on GitHub Actions for {args.name}")
+            print(f"  Watch: gh run watch --repo {repo}")
+        return
+
+    # Local build via docker compose
+    if deploy_mode == "run":
+        _error(f"Deployment '{args.name}' uses run mode — no local build. Use 'rundbat build' with github-actions strategy.", args.json)
+        return
+
+    compose_file = _compose_file_for_deployment(args.name)
+    if not compose_file.exists():
+        _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
+        return
+
+    ctx = dep_cfg.get("docker_context", "default")
+    env = {**os.environ}
+    if ctx and ctx != "default":
+        env["DOCKER_CONTEXT"] = ctx
+
+    cmd = ["docker", "compose", "-f", str(compose_file), "build"]
+    result = subprocess.run(cmd, env=env)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
+def cmd_up(args):
+    """Start a deployment."""
+    import os
+    import subprocess
+
+    resolved = _resolve_deployment(args.name, args.json)
+    if not resolved:
+        return
+    cfg, dep_cfg = resolved
+
+    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    build_strategy = dep_cfg.get("build_strategy", "context")
+    ctx = dep_cfg.get("docker_context", "default")
+
+    # --workflow flag: trigger deploy via GitHub Actions
+    if getattr(args, "workflow", False):
+        from rundbat.discovery import detect_gh
+        from rundbat.deploy import _get_github_repo, DeployError
+
+        gh = detect_gh()
+        if not gh["installed"]:
+            _error("GitHub CLI (gh) is not installed.", args.json)
+            return
+        if not gh["authenticated"]:
+            _error("GitHub CLI is not authenticated. Run 'gh auth login'.", args.json)
+            return
+
+        try:
+            repo = _get_github_repo()
+        except DeployError as e:
+            _error(str(e), args.json)
+            return
+
+        result = subprocess.run(
+            ["gh", "workflow", "run", "deploy.yml", "--repo", repo],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            _error(f"Failed to trigger deploy: {result.stderr.strip()}", args.json)
+            return
+
+        print(f"Deploy workflow triggered for {args.name}")
+        print(f"  Watch: gh run watch --repo {repo}")
+        return
+
+    # Run mode
+    if deploy_mode == "run":
+        from rundbat.deploy import _deploy_run, DeployError
+        try:
+            result = _deploy_run(args.name, dep_cfg, cfg.get("app_name", "app"),
+                                 dry_run=False)
+            _output(result, args.json)
+        except DeployError as e:
+            _error(str(e), args.json)
+        return
+
+    # Compose mode
+    compose_file = _compose_file_for_deployment(args.name)
+    if not compose_file.exists():
+        _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
+        return
+
+    env = {**os.environ}
+    if ctx and ctx != "default":
+        env["DOCKER_CONTEXT"] = ctx
+
+    # Pull first for github-actions strategy
+    if build_strategy == "github-actions":
+        subprocess.run(
+            ["docker", "compose", "-f", str(compose_file), "pull"],
+            env=env,
+        )
+
+    cmd = ["docker", "compose", "-f", str(compose_file), "up", "-d"]
+    result = subprocess.run(cmd, env=env)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
+def cmd_down(args):
+    """Stop a deployment."""
+    import os
+    import subprocess
+
+    resolved = _resolve_deployment(args.name, args.json)
+    if not resolved:
+        return
+    cfg, dep_cfg = resolved
+
+    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    ctx = dep_cfg.get("docker_context", "default")
+    app_name = cfg.get("app_name", "app")
+
+    env = {**os.environ}
+    if ctx and ctx != "default":
+        env["DOCKER_CONTEXT"] = ctx
+
+    if deploy_mode == "run":
+        subprocess.run(["docker", "stop", app_name], env=env, capture_output=True)
+        subprocess.run(["docker", "rm", app_name], env=env, capture_output=True)
+        print(f"Stopped {app_name}")
+        return
+
+    compose_file = _compose_file_for_deployment(args.name)
+    if not compose_file.exists():
+        _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
+        return
+
+    cmd = ["docker", "compose", "-f", str(compose_file), "down"]
+    result = subprocess.run(cmd, env=env)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
+def cmd_logs(args):
+    """Tail logs from a deployment."""
+    import os
+    import subprocess
+
+    resolved = _resolve_deployment(args.name, args.json)
+    if not resolved:
+        return
+    cfg, dep_cfg = resolved
+
+    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    ctx = dep_cfg.get("docker_context", "default")
+    app_name = cfg.get("app_name", "app")
+
+    env = {**os.environ}
+    if ctx and ctx != "default":
+        env["DOCKER_CONTEXT"] = ctx
+
+    if deploy_mode == "run":
+        cmd = ["docker", "logs", "-f", app_name]
+        subprocess.run(cmd, env=env)
+        return
+
+    compose_file = _compose_file_for_deployment(args.name)
+    if not compose_file.exists():
+        _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
+        return
+
+    cmd = ["docker", "compose", "-f", str(compose_file), "logs", "-f"]
+    subprocess.run(cmd, env=env)
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -350,7 +617,11 @@ def main():
         epilog="""\
 Commands:
   rundbat init               Set up rundbat in your project
-  rundbat init-docker        Generate Docker artifacts (Dockerfile, compose, Justfile)
+  rundbat generate           Generate Docker artifacts from config
+  rundbat build <name>       Build images for a deployment
+  rundbat up <name>          Start a deployment
+  rundbat down <name>        Stop a deployment
+  rundbat logs <name>        Tail logs from a deployment
   rundbat deploy <name>      Deploy to a remote host
   rundbat deploy-init <name> Set up a deployment target""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -374,9 +645,20 @@ Commands:
     )
     init_parser.set_defaults(func=cmd_init)
 
-    # rundbat init-docker
+    # rundbat generate
+    generate_parser = subparsers.add_parser(
+        "generate", help="Generate Docker artifacts from rundbat.yaml config",
+    )
+    generate_parser.add_argument(
+        "--deployment", default=None,
+        help="Regenerate only this deployment (default: all)",
+    )
+    _add_json_flag(generate_parser)
+    generate_parser.set_defaults(func=cmd_generate)
+
+    # rundbat init-docker (deprecated)
     init_docker_parser = subparsers.add_parser(
-        "init-docker", help="Scaffold a docker/ directory (Dockerfile, compose, Justfile)",
+        "init-docker", help="(Deprecated) Use 'rundbat generate' instead",
     )
     init_docker_parser.add_argument(
         "--hostname",
@@ -385,6 +667,50 @@ Commands:
     )
     _add_json_flag(init_docker_parser)
     init_docker_parser.set_defaults(func=cmd_init_docker)
+
+    # rundbat build <name>
+    build_parser = subparsers.add_parser(
+        "build", help="Build images for a deployment",
+    )
+    build_parser.add_argument(
+        "name", help="Deployment name (e.g., dev, prod)",
+    )
+    _add_json_flag(build_parser)
+    build_parser.set_defaults(func=cmd_build)
+
+    # rundbat up <name>
+    up_parser = subparsers.add_parser(
+        "up", help="Start a deployment (pull/build + start containers)",
+    )
+    up_parser.add_argument(
+        "name", help="Deployment name (e.g., dev, prod)",
+    )
+    up_parser.add_argument(
+        "--workflow", action="store_true", default=False,
+        help="Trigger deploy via GitHub Actions workflow instead of local Docker",
+    )
+    _add_json_flag(up_parser)
+    up_parser.set_defaults(func=cmd_up)
+
+    # rundbat down <name>
+    down_parser = subparsers.add_parser(
+        "down", help="Stop a deployment",
+    )
+    down_parser.add_argument(
+        "name", help="Deployment name (e.g., dev, prod)",
+    )
+    _add_json_flag(down_parser)
+    down_parser.set_defaults(func=cmd_down)
+
+    # rundbat logs <name>
+    logs_parser = subparsers.add_parser(
+        "logs", help="Tail logs from a deployment",
+    )
+    logs_parser.add_argument(
+        "name", help="Deployment name (e.g., dev, prod)",
+    )
+    _add_json_flag(logs_parser)
+    logs_parser.set_defaults(func=cmd_logs)
 
     # rundbat deploy <name>
     deploy_parser = subparsers.add_parser(
@@ -436,6 +762,15 @@ Commands:
         "--strategy", default=None,
         choices=["context", "ssh-transfer", "github-actions"],
         help="Build strategy for this deployment",
+    )
+    deploy_init_parser.add_argument(
+        "--deploy-mode", default=None,
+        choices=["compose", "run"],
+        help="Deploy mode: compose (default) or run (single container)",
+    )
+    deploy_init_parser.add_argument(
+        "--image", default=None,
+        help="Registry image reference (e.g., ghcr.io/owner/repo) for run mode",
     )
     deploy_init_parser.add_argument(
         "--ssh-key", default=None,

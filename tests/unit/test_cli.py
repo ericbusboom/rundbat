@@ -35,19 +35,24 @@ def test_no_args_shows_help():
     assert "init-docker" in result.stdout
 
 
-def test_only_four_commands():
-    """rundbat should only have 4 subcommands."""
+def test_expected_commands():
+    """rundbat should have the expected subcommands."""
     result = _run(["--help"])
     assert result.returncode == 0
     # These should be present
     assert "init" in result.stdout
-    assert "init-docker" in result.stdout
+    assert "generate" in result.stdout
+    assert "build" in result.stdout
+    assert "up" in result.stdout
+    assert "down" in result.stdout
+    assert "logs" in result.stdout
     assert "deploy" in result.stdout
     assert "deploy-init" in result.stdout
-    # These should be gone
+    assert "init-docker" in result.stdout
+    assert "probe" in result.stdout
+    # These should be gone (removed in sprint 005)
     assert "discover" not in result.stdout
     assert "create-env" not in result.stdout
-    assert "start" not in result.stdout
     assert "health" not in result.stdout
     assert "validate" not in result.stdout
     assert "set-secret" not in result.stdout
@@ -69,10 +74,34 @@ class TestSubcommandHelp:
         assert "--app-name" in result.stdout
         assert "--force" in result.stdout
 
+    def test_generate_help(self):
+        result = _run(["generate", "--help"])
+        assert result.returncode == 0
+        assert "--deployment" in result.stdout
+        assert "--json" in result.stdout
+
     def test_init_docker_help(self):
         result = _run(["init-docker", "--help"])
         assert result.returncode == 0
         assert "--json" in result.stdout
+
+    def test_build_help(self):
+        result = _run(["build", "--help"])
+        assert result.returncode == 0
+        assert "name" in result.stdout
+
+    def test_up_help(self):
+        result = _run(["up", "--help"])
+        assert result.returncode == 0
+        assert "--workflow" in result.stdout
+
+    def test_down_help(self):
+        result = _run(["down", "--help"])
+        assert result.returncode == 0
+
+    def test_logs_help(self):
+        result = _run(["logs", "--help"])
+        assert result.returncode == 0
 
     def test_deploy_help(self):
         result = _run(["deploy", "--help"])
@@ -87,6 +116,8 @@ class TestSubcommandHelp:
         assert "--host" in result.stdout
         assert "--compose-file" in result.stdout
         assert "--hostname" in result.stdout
+        assert "--deploy-mode" in result.stdout
+        assert "--image" in result.stdout
 
 
 # ---------------------------------------------------------------------------

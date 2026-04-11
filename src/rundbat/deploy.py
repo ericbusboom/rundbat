@@ -4,13 +4,19 @@ Supports three build strategies:
 - context: build on the Docker context target (default)
 - ssh-transfer: build locally with --platform, transfer via SSH
 - github-actions: pull pre-built images from GHCR
+
+Supports two deploy modes:
+- compose: docker compose up -d (default)
+- run: docker run with stored command
 """
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 VALID_STRATEGIES = ("context", "ssh-transfer", "github-actions")
+VALID_DEPLOY_MODES = ("compose", "run")
 
 
 class DeployError(Exception):
@@ -240,6 +246,10 @@ def load_deploy_config(name: str) -> dict:
         "platform": deploy_cfg.get("platform"),
         "build_strategy": deploy_cfg.get("build_strategy", "context"),
         "ssh_key": deploy_cfg.get("ssh_key"),
+        "deploy_mode": deploy_cfg.get("deploy_mode", "compose"),
+        "docker_run_cmd": deploy_cfg.get("docker_run_cmd"),
+        "image": deploy_cfg.get("image"),
+        "env_source": deploy_cfg.get("env_source"),
     }
 
 
@@ -325,6 +335,14 @@ def deploy(name: str, dry_run: bool = False, no_build: bool = False,
             f"Strategy 'github-actions' requires a 'host' field in the "
             f"deployment config. Run: rundbat deploy-init {name} --host ssh://user@host"
         )
+
+    # Check deploy_mode first
+    deploy_mode = deploy_cfg.get("deploy_mode", "compose")
+    if deploy_mode == "run":
+        from rundbat import config as cfg_mod
+        full_cfg = cfg_mod.load_config()
+        app_name = full_cfg.get("app_name", "app")
+        return _deploy_run(name, deploy_cfg, app_name, dry_run=dry_run)
 
     if build_strategy == "context":
         return _deploy_context(ctx, compose_file, hostname, no_build, dry_run)
@@ -468,6 +486,191 @@ def _deploy_github_actions(ctx: str, compose_file: str,
     return result
 
 
+# ---------------------------------------------------------------------------
+# docker run mode
+# ---------------------------------------------------------------------------
+
+def _build_docker_run_cmd(
+    app_name: str,
+    image: str,
+    port: str = "8080",
+    hostname: str | None = None,
+    env_file: str = ".env",
+    docker_context: str | None = None,
+) -> str:
+    """Build a complete docker run command string.
+
+    Includes: --name, --env-file, -p, --restart, and Caddy labels if hostname set.
+    """
+    parts = ["docker", "run", "-d", "--name", app_name]
+    parts.extend(["--env-file", env_file])
+    parts.extend(["-p", f"{port}:{port}"])
+    parts.extend(["--restart", "unless-stopped"])
+
+    if hostname:
+        parts.extend(["-l", f"caddy={hostname}"])
+        parts.extend(["-l", f'"caddy.reverse_proxy={{{{upstreams {port}}}}}"'])
+
+    parts.append(f"{image}:latest")
+    return " ".join(parts)
+
+
+def _prepare_env(
+    deployment_name: str,
+    deploy_cfg: dict,
+    app_name: str,
+) -> None:
+    """Prepare environment file for a deployment via dotconfig.
+
+    If env_source is 'dotconfig', fetches env from dotconfig and SCPs it
+    to the remote host at /opt/<app_name>/.env.
+    """
+    env_source = deploy_cfg.get("env_source")
+    if env_source != "dotconfig":
+        return
+
+    from rundbat import config
+
+    try:
+        env_content = config.load_env(deployment_name)
+    except Exception as e:
+        raise DeployError(
+            f"Failed to load dotconfig env for '{deployment_name}': {e}"
+        )
+
+    host = deploy_cfg.get("host")
+    if not host:
+        return
+
+    ssh_host = _parse_ssh_host(host)
+    ssh_key = deploy_cfg.get("ssh_key")
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".env", delete=False) as f:
+        f.write(env_content)
+        tmp_path = f.name
+
+    try:
+        scp_cmd = ["scp"]
+        if ssh_key:
+            scp_cmd.extend(["-i", ssh_key, "-o", "StrictHostKeyChecking=no"])
+        scp_cmd.extend([tmp_path, f"{ssh_host}:/opt/{app_name}/.env"])
+
+        result = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise DeployError(
+                f"Failed to transfer env file: {result.stderr.strip()}",
+                command=scp_cmd, exit_code=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+
+def _deploy_run(
+    deployment_name: str,
+    deploy_cfg: dict,
+    app_name: str,
+    dry_run: bool = False,
+) -> dict:
+    """Deploy using docker run (single container, no compose)."""
+    ctx = deploy_cfg.get("docker_context", "default")
+    docker_run_cmd = deploy_cfg.get("docker_run_cmd")
+    image = deploy_cfg.get("image", f"ghcr.io/owner/{app_name}")
+
+    if not docker_run_cmd:
+        raise DeployError(
+            f"Deployment '{deployment_name}' uses run mode but has no "
+            f"docker_run_cmd. Run 'rundbat deploy-init' with --deploy-mode run."
+        )
+
+    env = None
+    if ctx and ctx != "default":
+        env = {**os.environ, "DOCKER_CONTEXT": ctx}
+
+    pull_cmd = f"docker pull {image}:latest"
+    stop_cmd = f"docker stop {app_name} || true"
+    rm_cmd = f"docker rm {app_name} || true"
+
+    if dry_run:
+        return {
+            "status": "dry_run",
+            "strategy": "run",
+            "commands": [pull_cmd, stop_cmd, rm_cmd, docker_run_cmd],
+            "command": " && ".join([pull_cmd, stop_cmd, rm_cmd, docker_run_cmd]),
+            "context": ctx,
+        }
+
+    # Prepare env if dotconfig
+    _prepare_env(deployment_name, deploy_cfg, app_name)
+
+    # Pull
+    subprocess.run(["docker", "pull", f"{image}:latest"],
+                    env=env, capture_output=True, timeout=300)
+
+    # Stop + remove existing
+    subprocess.run(["docker", "stop", app_name],
+                    env=env, capture_output=True)
+    subprocess.run(["docker", "rm", app_name],
+                    env=env, capture_output=True)
+
+    # Run
+    result = subprocess.run(
+        docker_run_cmd, shell=True, env=env,
+        capture_output=True, text=True, timeout=60,
+    )
+    if result.returncode != 0:
+        raise DeployError(
+            f"docker run failed: {result.stderr.strip()}",
+            command=[docker_run_cmd], exit_code=result.returncode,
+            stderr=result.stderr.strip(),
+        )
+
+    return {
+        "status": "success",
+        "strategy": "run",
+        "command": docker_run_cmd,
+        "context": ctx,
+    }
+
+
+# ---------------------------------------------------------------------------
+# GitHub repo helper
+# ---------------------------------------------------------------------------
+
+def _get_github_repo() -> str:
+    """Get owner/repo from git remote origin.
+
+    Parses both SSH and HTTPS URL formats:
+    - git@github.com:owner/repo.git -> owner/repo
+    - https://github.com/owner/repo.git -> owner/repo
+    - https://github.com/owner/repo -> owner/repo
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except FileNotFoundError:
+        raise DeployError("git is not installed.")
+
+    if result.returncode != 0:
+        raise DeployError("No git remote 'origin' found.")
+
+    url = result.stdout.strip()
+
+    # SSH format: git@github.com:owner/repo.git
+    if url.startswith("git@github.com:"):
+        repo = url[len("git@github.com:"):]
+        return repo.removesuffix(".git")
+
+    # HTTPS format: https://github.com/owner/repo.git
+    if "github.com/" in url:
+        parts = url.split("github.com/", 1)[1]
+        return parts.removesuffix(".git")
+
+    raise DeployError(f"Remote '{url}' is not a GitHub repository.")
+
+
 def _context_name_from_host(host_url: str) -> str:
     """Generate a Docker context name from the SSH host URL.
 
@@ -510,7 +713,9 @@ def _find_context_for_host(host_url: str) -> str | None:
 def init_deployment(name: str, host: str, compose_file: str | None = None,
                     hostname: str | None = None,
                     build_strategy: str | None = None,
-                    ssh_key: str | None = None) -> dict:
+                    ssh_key: str | None = None,
+                    deploy_mode: str | None = None,
+                    image: str | None = None) -> dict:
     """Set up a new deployment target: verify access, create context, save config.
 
     Args:
@@ -520,6 +725,8 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         hostname: App hostname for post-deploy message (optional)
         build_strategy: Build strategy (context, ssh-transfer, github-actions)
         ssh_key: Path to SSH private key file (e.g., config/prod/app-deploy-key)
+        deploy_mode: Deploy mode ('compose' or 'run')
+        image: Registry image reference for run mode
 
     Returns dict with status and details.
     """
@@ -579,6 +786,21 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         deploy_entry["hostname"] = hostname
     if ssh_key:
         deploy_entry["ssh_key"] = ssh_key
+    if deploy_mode:
+        deploy_entry["deploy_mode"] = deploy_mode
+    if image:
+        deploy_entry["image"] = image
+
+    # Generate docker_run_cmd for run mode
+    if deploy_mode == "run" and image:
+        app_name = cfg.get("app_name", "app")
+        port = "8080"  # default port
+        env_file = f"/opt/{app_name}/.env"
+        docker_run_cmd = _build_docker_run_cmd(
+            app_name, image, port, hostname, env_file, ctx,
+        )
+        deploy_entry["docker_run_cmd"] = docker_run_cmd
+
     deployments[name] = deploy_entry
     cfg["deployments"] = deployments
     config.save_config(data=cfg)
@@ -591,4 +813,5 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
         "platform": remote_platform,
         "build_strategy": build_strategy,
         "ssh_key": ssh_key,
+        "deploy_mode": deploy_mode,
     }

@@ -1,19 +1,20 @@
 # deploy-setup
 
-Set up a deployment target with the right build strategy. Walks through
-SSH access, platform detection, and strategy-specific configuration.
+For guided setup, use the **deploy-init** skill (say "I want to deploy").
+It walks through all decisions with interactive prompts.
+
+This document covers manual steps and SSH troubleshooting.
 
 ## When to use
 
-- "I want to deploy this app"
-- "Set up deployment to my server"
-- "Deploy to production"
-- "Configure remote deployment"
+- "Manual deploy setup"
+- "SSH troubleshooting"
+- "Fix deployment access"
 
 ## Prerequisites
 
 - Project initialized (`rundbat.yaml` exists — run `rundbat init` first)
-- Docker artifacts generated (`docker/` exists — run `rundbat init-docker` first)
+- Docker artifacts generated (`docker/` exists — run `rundbat generate` first)
 
 ## Steps
 

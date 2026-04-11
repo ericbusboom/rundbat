@@ -166,6 +166,15 @@ def detect_caddy(context: str) -> dict:
     }
 
 
+def detect_gh() -> dict:
+    """Detect GitHub CLI installation and auth status."""
+    result = _run_command(["gh", "auth", "status"])
+    return {
+        "installed": result["returncode"] != -1,
+        "authenticated": result["success"],
+    }
+
+
 def discover_system() -> dict:
     """Run full system discovery and return capabilities report."""
     return {

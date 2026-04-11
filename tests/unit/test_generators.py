@@ -9,10 +9,15 @@ from rundbat.generators import (
     detect_framework,
     generate_dockerfile,
     generate_compose,
+    generate_compose_for_deployment,
+    generate_entrypoint,
     generate_justfile,
     generate_env_example,
     generate_github_workflow,
+    generate_github_build_workflow,
+    generate_github_deploy_workflow,
     generate_nginx_conf,
+    generate_artifacts,
     init_docker,
     add_service,
 )
@@ -196,54 +201,79 @@ class TestGenerateCompose:
 # ---------------------------------------------------------------------------
 
 class TestGenerateJustfile:
-    def test_basic_recipes(self):
+    def test_basic_recipes_no_deployments(self):
+        """Fallback when no deployments: generic build/up/down/logs."""
         jf = generate_justfile("myapp")
         assert "build:" in jf
         assert "up:" in jf
         assert "down:" in jf
         assert "logs" in jf
 
-    def test_docker_context_var(self):
+    def test_per_deployment_recipes(self):
+        """Each deployment gets named recipes."""
         deployments = {
-            "dev": {"docker_context": "orbstack"},
+            "dev": {"docker_context": "default"},
             "prod": {"docker_context": "myapp-prod"},
         }
         jf = generate_justfile("myapp", deployments=deployments)
-        assert "DOCKER_CONTEXT=" in jf
-        assert "orbstack" in jf
-        assert "myapp-prod" in jf
+        assert "dev_build:" in jf
+        assert "dev_up:" in jf
+        assert "dev_down:" in jf
+        assert "dev_logs" in jf
+        assert "prod_build:" in jf
+        assert "prod_up:" in jf
+        assert "prod_down:" in jf
+        assert "prod_logs" in jf
 
-    def test_deploy_recipe(self):
-        jf = generate_justfile("myapp")
-        assert "deploy:" in jf
+    def test_docker_context_prefix(self):
+        """Remote deployments prefix commands with DOCKER_CONTEXT."""
+        deployments = {
+            "dev": {"docker_context": "default"},
+            "prod": {"docker_context": "myapp-prod"},
+        }
+        jf = generate_justfile("myapp", deployments=deployments)
+        assert "DOCKER_CONTEXT=myapp-prod" in jf
+        # dev should NOT have context prefix since it's default
+        lines = jf.split("\n")
+        for line in lines:
+            if line.strip().startswith("docker compose") and "dev" in line:
+                assert "DOCKER_CONTEXT=" not in line
+
+    def test_github_actions_pull(self):
+        """github-actions deployment uses pull instead of build."""
+        deployments = {
+            "prod": {"docker_context": "myapp-prod", "build_strategy": "github-actions"},
+        }
+        jf = generate_justfile("myapp", deployments=deployments)
+        assert "pull" in jf
+        assert "GitHub Actions" in jf
+
+    def test_postgres_recipes(self):
+        services = [{"type": "postgres"}]
+        deployments = {"dev": {"docker_context": "default", "services": ["app", "postgres"]}}
+        jf = generate_justfile("myapp", services, deployments)
+        assert "dev_psql:" in jf
+        assert "dev_db_dump:" in jf
 
     def test_no_push_recipe(self):
         jf = generate_justfile("myapp")
         assert "push:" not in jf
 
-    def test_postgres_recipes(self):
-        services = [{"type": "postgres"}]
-        jf = generate_justfile("myapp", services)
-        assert "psql:" in jf
-        assert "db-dump:" in jf
-        assert "db-restore" in jf
-
-    def test_mariadb_recipes(self):
-        services = [{"type": "mariadb"}]
-        jf = generate_justfile("myapp", services)
-        assert "mysql:" in jf
-        assert "mariadb-dump" in jf
-
-    def test_platform_variable(self):
-        jf = generate_justfile("myapp")
-        assert "PLATFORM" in jf
-        assert "DOCKER_PLATFORM" in jf
-
-    def test_deploy_transfer_recipe(self):
-        jf = generate_justfile("myapp")
-        assert "deploy-transfer HOST:" in jf
-        assert "docker save" in jf
-        assert "docker load" in jf
+    def test_run_mode_recipes(self):
+        """Run mode deployments get docker run/stop/logs recipes."""
+        deployments = {
+            "prod": {
+                "docker_context": "myapp-prod",
+                "deploy_mode": "run",
+                "image": "ghcr.io/owner/myapp:latest",
+                "docker_run_cmd": "docker run -d --name myapp ghcr.io/owner/myapp:latest",
+            },
+        }
+        jf = generate_justfile("myapp", deployments=deployments)
+        assert "prod_up:" in jf
+        assert "prod_down:" in jf
+        assert "docker stop" in jf
+        assert "docker rm" in jf
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +366,8 @@ class TestInitDocker:
         result = init_docker(tmp_path, "testapp")
         assert result["status"] == "created"
         assert (tmp_path / "docker" / "Dockerfile").exists()
-        assert (tmp_path / "docker" / "docker-compose.yml").exists()
+        # init_docker now creates per-deployment compose files
+        assert (tmp_path / "docker" / "docker-compose.dev.yml").exists()
         assert (tmp_path / "docker" / "Justfile").exists()
         assert (tmp_path / "docker" / ".env.example").exists()
         assert (tmp_path / ".dockerignore").exists()
@@ -347,12 +378,6 @@ class TestInitDocker:
         (tmp_path / ".dockerignore").write_text(existing)
         init_docker(tmp_path, "testapp")
         assert (tmp_path / ".dockerignore").read_text() == existing
-
-    def test_with_services(self, tmp_path):
-        services = [{"type": "postgres", "version": "16"}]
-        result = init_docker(tmp_path, "testapp", services=services)
-        compose = yaml.safe_load((tmp_path / "docker" / "docker-compose.yml").read_text())
-        assert "postgres" in compose["services"]
 
     def test_idempotent(self, tmp_path):
         init_docker(tmp_path, "testapp")
@@ -375,9 +400,256 @@ class TestInitDocker:
 # add_service
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Per-deployment compose generation
+# ---------------------------------------------------------------------------
+
+class TestGenerateComposeForDeployment:
+    def test_context_build(self):
+        """Context strategy uses build: stanza."""
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "dev",
+            {"docker_context": "default", "build_strategy": "context"}, None,
+        )
+        compose = yaml.safe_load(result)
+        assert "build" in compose["services"]["app"]
+        assert "image" not in compose["services"]["app"]
+
+    def test_github_actions_image(self):
+        """github-actions strategy uses image: stanza."""
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "prod",
+            {"build_strategy": "github-actions", "image": "ghcr.io/owner/myapp"},
+            None,
+        )
+        compose = yaml.safe_load(result)
+        assert compose["services"]["app"]["image"] == "ghcr.io/owner/myapp:latest"
+        assert "build" not in compose["services"]["app"]
+
+    def test_env_file_path(self):
+        """env_file references docker/.<name>.env."""
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "prod",
+            {"build_strategy": "context"}, None,
+        )
+        compose = yaml.safe_load(result)
+        assert compose["services"]["app"]["env_file"] == ["docker/.prod.env"]
+
+    def test_caddy_labels(self):
+        """Caddy labels included when hostname + reverse_proxy: caddy."""
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "prod",
+            {"build_strategy": "context", "hostname": "app.example.com", "reverse_proxy": "caddy"},
+            None,
+        )
+        compose = yaml.safe_load(result)
+        labels = compose["services"]["app"]["labels"]
+        assert labels["caddy"] == "app.example.com"
+
+    def test_no_caddy_labels_without_reverse_proxy(self):
+        """No Caddy labels when reverse_proxy not set."""
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "prod",
+            {"build_strategy": "context", "hostname": "app.example.com"},
+            None,
+        )
+        compose = yaml.safe_load(result)
+        assert "labels" not in compose["services"]["app"]
+
+    def test_service_filtering(self):
+        """Only services listed in deployment are included."""
+        all_services = [
+            {"type": "postgres", "version": "16"},
+            {"type": "redis", "version": "7"},
+        ]
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "prod",
+            {"build_strategy": "context", "services": ["app", "postgres"]},
+            all_services,
+        )
+        compose = yaml.safe_load(result)
+        assert "postgres" in compose["services"]
+        assert "redis" not in compose["services"]
+
+    def test_all_services_when_no_filter(self):
+        """All services included when no services filter in deployment."""
+        all_services = [
+            {"type": "postgres", "version": "16"},
+            {"type": "redis", "version": "7"},
+        ]
+        result = generate_compose_for_deployment(
+            "myapp", {"language": "node"}, "dev",
+            {"build_strategy": "context"},
+            all_services,
+        )
+        compose = yaml.safe_load(result)
+        assert "postgres" in compose["services"]
+        assert "redis" in compose["services"]
+
+    def test_astro_port(self):
+        """Astro uses port 8080."""
+        fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
+        result = generate_compose_for_deployment(
+            "myapp", fw, "dev", {"build_strategy": "context"}, None,
+        )
+        assert "8080" in result
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint generation
+# ---------------------------------------------------------------------------
+
+class TestGenerateEntrypoint:
+    def test_basic_structure(self):
+        result = generate_entrypoint({"language": "node", "framework": "express"})
+        assert result.startswith("#!/bin/sh")
+        assert "set -e" in result
+        assert 'exec "$@"' in result
+
+    def test_django_migrations(self):
+        result = generate_entrypoint({"language": "python", "framework": "django"})
+        assert "manage.py migrate" in result
+
+    def test_node_prisma(self):
+        result = generate_entrypoint({"language": "node", "framework": "next"})
+        assert "prisma migrate deploy" in result
+
+    def test_age_key_setup(self):
+        result = generate_entrypoint({"language": "node", "framework": "express"})
+        assert "SOPS_AGE_KEY_FILE" in result
+
+
+# ---------------------------------------------------------------------------
+# GitHub Actions split workflows
+# ---------------------------------------------------------------------------
+
+class TestGenerateGitHubBuildWorkflow:
+    def test_basic_structure(self):
+        wf = generate_github_build_workflow()
+        assert "name: Build" in wf
+        assert "workflow_dispatch" in wf
+        assert "ghcr.io" in wf
+        assert "linux/amd64" in wf
+
+    def test_custom_platform(self):
+        wf = generate_github_build_workflow("linux/arm64")
+        assert "linux/arm64" in wf
+
+    def test_push_trigger(self):
+        wf = generate_github_build_workflow()
+        assert "push:" in wf
+        assert "branches: [main]" in wf
+
+
+class TestGenerateGitHubDeployWorkflow:
+    def test_compose_mode(self):
+        wf = generate_github_deploy_workflow("myapp", "docker/docker-compose.prod.yml")
+        assert "name: Deploy" in wf
+        assert "workflow_run:" in wf
+        assert "workflow_dispatch" in wf
+        assert "docker compose" in wf
+        assert "workflow_run.conclusion == 'success'" in wf
+
+    def test_run_mode(self):
+        wf = generate_github_deploy_workflow(
+            "myapp", deploy_mode="run",
+            docker_run_cmd="docker run -d --name myapp ghcr.io/owner/myapp:latest",
+        )
+        assert "docker stop myapp" in wf
+        assert "docker rm myapp" in wf
+
+
+# ---------------------------------------------------------------------------
+# generate_artifacts (integration)
+# ---------------------------------------------------------------------------
+
+class TestGenerateArtifacts:
+    def test_creates_per_deployment_compose(self, tmp_path):
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {
+                "dev": {"docker_context": "default", "build_strategy": "context"},
+                "prod": {"docker_context": "prod-host", "build_strategy": "context"},
+            },
+        }
+        result = generate_artifacts(tmp_path, cfg)
+        assert result["status"] == "created"
+        assert (tmp_path / "docker" / "docker-compose.dev.yml").exists()
+        assert (tmp_path / "docker" / "docker-compose.prod.yml").exists()
+        assert (tmp_path / "docker" / "entrypoint.sh").exists()
+        assert (tmp_path / "docker" / "Justfile").exists()
+
+    def test_single_deployment_flag(self, tmp_path):
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {
+                "dev": {"docker_context": "default", "build_strategy": "context"},
+                "prod": {"docker_context": "prod-host", "build_strategy": "context"},
+            },
+        }
+        result = generate_artifacts(tmp_path, cfg, deployment="prod")
+        assert (tmp_path / "docker" / "docker-compose.prod.yml").exists()
+        # dev should not be generated when deployment="prod"
+        assert not (tmp_path / "docker" / "docker-compose.dev.yml").exists()
+
+    def test_github_actions_workflows(self, tmp_path):
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "prod-host",
+                    "build_strategy": "github-actions",
+                    "image": "ghcr.io/owner/myapp",
+                    "platform": "linux/amd64",
+                },
+            },
+        }
+        result = generate_artifacts(tmp_path, cfg)
+        assert (tmp_path / ".github" / "workflows" / "build.yml").exists()
+        assert (tmp_path / ".github" / "workflows" / "deploy.yml").exists()
+
+    def test_gitignore_updated(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("node_modules/\n")
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {"dev": {"docker_context": "default"}},
+        }
+        generate_artifacts(tmp_path, cfg)
+        content = (tmp_path / ".gitignore").read_text()
+        assert "docker/.*.env" in content
+
+    def test_entrypoint_executable(self, tmp_path):
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {"dev": {"docker_context": "default"}},
+        }
+        generate_artifacts(tmp_path, cfg)
+        entrypoint = tmp_path / "docker" / "entrypoint.sh"
+        assert entrypoint.exists()
+        import stat
+        assert entrypoint.stat().st_mode & stat.S_IXUSR
+
+
 class TestAddService:
+    def _create_compose(self, tmp_path, services=None):
+        """Create a docker-compose.yml for add_service tests."""
+        from rundbat.generators import generate_compose
+        docker_dir = tmp_path / "docker"
+        docker_dir.mkdir(parents=True, exist_ok=True)
+        content = generate_compose("testapp", {"language": "node"}, services)
+        (docker_dir / "docker-compose.yml").write_text(content)
+
     def test_adds_postgres(self, tmp_path):
-        init_docker(tmp_path, "testapp")
+        self._create_compose(tmp_path)
         result = add_service(tmp_path, "postgres", "16")
         assert result["status"] == "added"
         compose = yaml.safe_load((tmp_path / "docker" / "docker-compose.yml").read_text())
@@ -386,7 +658,7 @@ class TestAddService:
 
     def test_already_exists(self, tmp_path):
         services = [{"type": "postgres", "version": "16"}]
-        init_docker(tmp_path, "testapp", services=services)
+        self._create_compose(tmp_path, services)
         result = add_service(tmp_path, "postgres")
         assert result["status"] == "already_exists"
 
@@ -395,12 +667,12 @@ class TestAddService:
         assert "error" in result
 
     def test_unknown_service(self, tmp_path):
-        init_docker(tmp_path, "testapp")
+        self._create_compose(tmp_path)
         result = add_service(tmp_path, "oracle")
         assert "error" in result
 
     def test_adds_redis(self, tmp_path):
-        init_docker(tmp_path, "testapp")
+        self._create_compose(tmp_path)
         result = add_service(tmp_path, "redis", "7")
         assert result["status"] == "added"
         compose = yaml.safe_load((tmp_path / "docker" / "docker-compose.yml").read_text())
