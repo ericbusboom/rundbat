@@ -1,14 +1,20 @@
 ---
-id: "007"
-title: "Docker Lifecycle and Deployment Initialization"
-status: planning
+id: '007'
+title: Docker Lifecycle and Deployment Initialization
+status: done
 branch: sprint/007-docker-lifecycle-and-deployment-initialization
-use-cases: [SUC-001, SUC-002, SUC-003, SUC-004, SUC-005, SUC-006]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
+- SUC-005
+- SUC-006
 todos:
-  - plan-rundbat-generate-build-up-down-logs-docker-artifact-generation-and-lifecycle.md
-  - plan-github-actions-build-deploy-with-docker-run-and-dotconfig-integration.md
-  - plan-rundbat-build-triggers-github-actions-workflow-for-ghcr-builds.md
-  - plan-deployment-initialization-guided-setup-and-configuration-model.md
+- plan-rundbat-generate-build-up-down-logs-docker-artifact-generation-and-lifecycle.md
+- plan-github-actions-build-deploy-with-docker-run-and-dotconfig-integration.md
+- plan-rundbat-build-triggers-github-actions-workflow-for-ghcr-builds.md
+- plan-deployment-initialization-guided-setup-and-configuration-model.md
 ---
 
 # Sprint 007: Docker Lifecycle and Deployment Initialization
