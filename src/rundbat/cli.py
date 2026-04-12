@@ -168,7 +168,20 @@ def cmd_init(args):
             print(f"failed!\n    {e}")
             sys.exit(1)
 
-    # Step 5: Install Claude integration files
+    # Step 5: Ensure .gitignore excludes per-deployment env files
+    gitignore = project_dir / ".gitignore"
+    gitignore_pattern = "docker/.*.env"
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if gitignore_pattern not in content:
+            with open(gitignore, "a") as f:
+                f.write(f"\n# Per-deployment env files (contain secrets from dotconfig)\n{gitignore_pattern}\n")
+            print(f"  Updated .gitignore with {gitignore_pattern}")
+    else:
+        gitignore.write_text(f"# Per-deployment env files (contain secrets from dotconfig)\n{gitignore_pattern}\n")
+        print(f"  Created .gitignore with {gitignore_pattern}")
+
+    # Step 6: Install Claude integration files
     print(f"  Installing Claude integration files...", end=" ")
     try:
         install_result = installer.install(project_dir)
