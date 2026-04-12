@@ -140,16 +140,15 @@ def cmd_init(args):
                 "deployments": {
                     "dev": {
                         "docker_context": local_context,
-                        "compose_file": "docker/docker-compose.yml",
+                        "build_strategy": "context",
                     },
                     "prod": {
                         "docker_context": "",
-                        "compose_file": "docker/docker-compose.prod.yml",
                         "hostname": "",
                     },
                     "test": {
                         "docker_context": local_context,
-                        "compose_file": "docker/docker-compose.yml",
+                        "build_strategy": "context",
                     },
                 },
                 "notes": [],
