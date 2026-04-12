@@ -1,0 +1,4 @@
+.claude
+
+# Per-deployment env files (contain secrets from dotconfig)
+docker/.*.env

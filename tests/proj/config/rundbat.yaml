@@ -1,16 +1,24 @@
 app_name: proj
-app_name_source: directory name (proj)
+app_name_source: pyproject.toml project.name
 container_template: '{app}-{env}-pg'
 database_template: '{app}_{env}'
 deployments:
   dev:
-    compose_file: docker/docker-compose.yml
+    build_strategy: context
+    compose_file: docker/docker-compose.dev.yml
+    config_deployment: dev
     docker_context: swarm1
+    env_source: dotconfig
   prod:
     compose_file: docker/docker-compose.prod.yml
+    config_deployment: prod
     docker_context: ''
+    env_source: dotconfig
     hostname: ''
   test:
-    compose_file: docker/docker-compose.yml
+    build_strategy: context
+    compose_file: docker/docker-compose.test.yml
+    config_deployment: test
     docker_context: swarm1
+    env_source: dotconfig
 notes: []

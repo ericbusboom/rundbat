@@ -1,0 +1,45 @@
+# proj — Docker deployment recipes
+
+set dotenv-load
+
+# --- dev ---
+
+dev_build:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.dev.yml build
+
+dev_up: dev_build
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.dev.yml up -d
+
+dev_down:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.dev.yml down
+
+dev_logs *ARGS:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.dev.yml logs {{ARGS}}
+
+# --- prod ---
+
+prod_build:
+    docker compose -f docker/docker-compose.prod.yml build
+
+prod_up: prod_build
+    docker compose -f docker/docker-compose.prod.yml up -d
+
+prod_down:
+    docker compose -f docker/docker-compose.prod.yml down
+
+prod_logs *ARGS:
+    docker compose -f docker/docker-compose.prod.yml logs {{ARGS}}
+
+# --- test ---
+
+test_build:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.test.yml build
+
+test_up: test_build
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.test.yml up -d
+
+test_down:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.test.yml down
+
+test_logs *ARGS:
+    DOCKER_CONTEXT=swarm1 docker compose -f docker/docker-compose.test.yml logs {{ARGS}}
