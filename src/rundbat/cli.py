@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -406,8 +407,7 @@ def _compose_file_for_deployment(name: str, dep_cfg: dict) -> Path:
 
 def cmd_build(args):
     """Build images for a deployment."""
-    import os
-    import subprocess
+    verbose = getattr(args, "verbose", False)
 
     resolved = _resolve_deployment(args.name, args.json)
     if not resolved:
@@ -436,10 +436,8 @@ def cmd_build(args):
             _error(str(e), args.json)
             return
 
-        result = subprocess.run(
-            ["gh", "workflow", "run", "build.yml", "--repo", repo],
-            capture_output=True, text=True,
-        )
+        cmd = ["gh", "workflow", "run", "build.yml", "--repo", repo]
+        result = _run_cmd(cmd, verbose=verbose, capture_output=True, text=True)
         if result.returncode != 0:
             _error(f"Failed to trigger build: {result.stderr.strip()}", args.json)
             return
@@ -467,15 +465,14 @@ def cmd_build(args):
         env["DOCKER_CONTEXT"] = ctx
 
     cmd = ["docker", "compose", "-f", str(compose_file), "build"]
-    result = subprocess.run(cmd, env=env)
+    result = _run_cmd(cmd, env=env, verbose=verbose)
     if result.returncode != 0:
         sys.exit(result.returncode)
 
 
 def cmd_up(args):
     """Start a deployment."""
-    import os
-    import subprocess
+    verbose = getattr(args, "verbose", False)
 
     resolved = _resolve_deployment(args.name, args.json)
     if not resolved:
@@ -505,10 +502,8 @@ def cmd_up(args):
             _error(str(e), args.json)
             return
 
-        result = subprocess.run(
-            ["gh", "workflow", "run", "deploy.yml", "--repo", repo],
-            capture_output=True, text=True,
-        )
+        cmd = ["gh", "workflow", "run", "deploy.yml", "--repo", repo]
+        result = _run_cmd(cmd, verbose=verbose, capture_output=True, text=True)
         if result.returncode != 0:
             _error(f"Failed to trigger deploy: {result.stderr.strip()}", args.json)
             return
@@ -540,21 +535,20 @@ def cmd_up(args):
 
     # Pull first for github-actions strategy
     if build_strategy == "github-actions":
-        subprocess.run(
+        _run_cmd(
             ["docker", "compose", "-f", str(compose_file), "pull"],
-            env=env,
+            env=env, verbose=verbose,
         )
 
     cmd = ["docker", "compose", "-f", str(compose_file), "up", "-d"]
-    result = subprocess.run(cmd, env=env)
+    result = _run_cmd(cmd, env=env, verbose=verbose)
     if result.returncode != 0:
         sys.exit(result.returncode)
 
 
 def cmd_down(args):
     """Stop a deployment."""
-    import os
-    import subprocess
+    verbose = getattr(args, "verbose", False)
 
     resolved = _resolve_deployment(args.name, args.json)
     if not resolved:
@@ -570,8 +564,8 @@ def cmd_down(args):
         env["DOCKER_CONTEXT"] = ctx
 
     if deploy_mode == "run":
-        subprocess.run(["docker", "stop", app_name], env=env, capture_output=True)
-        subprocess.run(["docker", "rm", app_name], env=env, capture_output=True)
+        _run_cmd(["docker", "stop", app_name], env=env, verbose=verbose, capture_output=True)
+        _run_cmd(["docker", "rm", app_name], env=env, verbose=verbose, capture_output=True)
         print(f"Stopped {app_name}")
         return
 
@@ -581,15 +575,14 @@ def cmd_down(args):
         return
 
     cmd = ["docker", "compose", "-f", str(compose_file), "down"]
-    result = subprocess.run(cmd, env=env)
+    result = _run_cmd(cmd, env=env, verbose=verbose)
     if result.returncode != 0:
         sys.exit(result.returncode)
 
 
 def cmd_logs(args):
     """Tail logs from a deployment."""
-    import os
-    import subprocess
+    verbose = getattr(args, "verbose", False)
 
     resolved = _resolve_deployment(args.name, args.json)
     if not resolved:
@@ -606,7 +599,7 @@ def cmd_logs(args):
 
     if deploy_mode == "run":
         cmd = ["docker", "logs", "-f", app_name]
-        subprocess.run(cmd, env=env)
+        _run_cmd(cmd, env=env, verbose=verbose)
         return
 
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
@@ -615,12 +608,24 @@ def cmd_logs(args):
         return
 
     cmd = ["docker", "compose", "-f", str(compose_file), "logs", "-f"]
-    subprocess.run(cmd, env=env)
+    _run_cmd(cmd, env=env, verbose=verbose)
 
 
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
+
+def _run_cmd(cmd: list[str], env: dict | None = None, verbose: bool = False,
+             **kwargs) -> "subprocess.CompletedProcess":
+    """Run a subprocess command, printing the shell line when verbose."""
+    import subprocess
+    if verbose:
+        prefix = ""
+        if env and "DOCKER_CONTEXT" in env and env["DOCKER_CONTEXT"] != os.environ.get("DOCKER_CONTEXT"):
+            prefix = f"DOCKER_CONTEXT={env['DOCKER_CONTEXT']} "
+        print(f"  $ {prefix}{' '.join(cmd)}", file=sys.stderr)
+    return subprocess.run(cmd, env=env, **kwargs)
+
 
 def _add_json_flag(parser):
     """Add --json flag to a subparser."""
@@ -649,6 +654,10 @@ Commands:
     )
     parser.add_argument(
         "--version", action="version", version=f"rundbat {__version__}",
+    )
+    parser.add_argument(
+        "-v", "--verbose", action="store_true", default=False,
+        help="Print shell commands before executing them",
     )
     subparsers = parser.add_subparsers(dest="command")
 
