@@ -461,7 +461,7 @@ def cmd_build(args):
 
     ctx = dep_cfg.get("docker_context", "default")
     env = {**os.environ}
-    if ctx and ctx != "default":
+    if ctx:
         env["DOCKER_CONTEXT"] = ctx
 
     cmd = ["docker", "compose", "-f", str(compose_file), "build"]
@@ -530,7 +530,7 @@ def cmd_up(args):
         return
 
     env = {**os.environ}
-    if ctx and ctx != "default":
+    if ctx:
         env["DOCKER_CONTEXT"] = ctx
 
     # Pull first for github-actions strategy
@@ -560,7 +560,7 @@ def cmd_down(args):
     app_name = cfg.get("app_name", "app")
 
     env = {**os.environ}
-    if ctx and ctx != "default":
+    if ctx:
         env["DOCKER_CONTEXT"] = ctx
 
     if deploy_mode == "run":
@@ -594,7 +594,7 @@ def cmd_logs(args):
     app_name = cfg.get("app_name", "app")
 
     env = {**os.environ}
-    if ctx and ctx != "default":
+    if ctx:
         env["DOCKER_CONTEXT"] = ctx
 
     if deploy_mode == "run":
@@ -621,7 +621,7 @@ def _run_cmd(cmd: list[str], env: dict | None = None, verbose: bool = False,
     import subprocess
     if verbose:
         prefix = ""
-        if env and "DOCKER_CONTEXT" in env and env["DOCKER_CONTEXT"] != os.environ.get("DOCKER_CONTEXT"):
+        if env and "DOCKER_CONTEXT" in env:
             prefix = f"DOCKER_CONTEXT={env['DOCKER_CONTEXT']} "
         print(f"  $ {prefix}{' '.join(cmd)}", file=sys.stderr)
     return subprocess.run(cmd, env=env, **kwargs)
