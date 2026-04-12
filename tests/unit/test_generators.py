@@ -427,13 +427,13 @@ class TestGenerateComposeForDeployment:
         assert "build" not in compose["services"]["app"]
 
     def test_env_file_path(self):
-        """env_file references docker/.<name>.env."""
+        """env_file references .<name>.env (relative to compose file in docker/)."""
         result = generate_compose_for_deployment(
             "myapp", {"language": "node"}, "prod",
             {"build_strategy": "context"}, None,
         )
         compose = yaml.safe_load(result)
-        assert compose["services"]["app"]["env_file"] == ["docker/.prod.env"]
+        assert compose["services"]["app"]["env_file"] == [".prod.env"]
 
     def test_caddy_labels(self):
         """Caddy labels included when hostname + reverse_proxy: caddy."""

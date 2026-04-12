@@ -367,7 +367,7 @@ def generate_compose_for_deployment(
     # App service
     app_svc: dict[str, Any] = {
         "ports": [f"${{{app_name.upper()}_PORT:-{port}}}:{port}"],
-        "env_file": [f"docker/.{deployment_name}.env"],
+        "env_file": [f".{deployment_name}.env"],
         "restart": "unless-stopped",
     }
 
