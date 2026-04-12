@@ -250,6 +250,7 @@ def load_deploy_config(name: str) -> dict:
         "docker_run_cmd": deploy_cfg.get("docker_run_cmd"),
         "image": deploy_cfg.get("image"),
         "env_source": deploy_cfg.get("env_source"),
+        "config_deployment": deploy_cfg.get("config_deployment", name),
     }
 
 
@@ -531,11 +532,12 @@ def _prepare_env(
 
     from rundbat import config
 
+    config_deployment = deploy_cfg.get("config_deployment", deployment_name)
     try:
-        env_content = config.load_env(deployment_name)
+        env_content = config.load_env(config_deployment)
     except Exception as e:
         raise DeployError(
-            f"Failed to load dotconfig env for '{deployment_name}': {e}"
+            f"Failed to load dotconfig env for '{config_deployment}': {e}"
         )
 
     host = deploy_cfg.get("host")

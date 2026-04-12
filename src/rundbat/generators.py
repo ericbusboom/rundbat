@@ -961,15 +961,16 @@ def generate_artifacts(
 
         # Per-deployment env file
         env_source = dep_cfg.get("env_source")
+        config_deployment = dep_cfg.get("config_deployment", dep_name)
         env_path = docker_dir / f".{dep_name}.env"
         if env_source == "dotconfig":
             try:
                 from rundbat import config as cfg_mod
-                env_content = cfg_mod.load_env(dep_name)
+                env_content = cfg_mod.load_env(config_deployment)
                 env_path.write_text(env_content)
             except Exception:
-                env_path.write_text(f"# dotconfig env for {dep_name} — run 'dotconfig load -d {dep_name}' to populate\n")
-                print(f"  Warning: Could not load dotconfig env for {dep_name}", file=sys.stderr)
+                env_path.write_text(f"# dotconfig env for {config_deployment} — run 'dotconfig load -d {config_deployment}' to populate\n")
+                print(f"  Warning: Could not load dotconfig env for {config_deployment}", file=sys.stderr)
         else:
             env_path.write_text(generate_env_example(app_name, framework, all_services))
         generated.append(str(env_path.relative_to(project_dir)))
