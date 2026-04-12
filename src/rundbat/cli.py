@@ -201,8 +201,17 @@ def cmd_init(args):
 
 def cmd_deploy(args):
     """Deploy using the configured build strategy."""
-    from rundbat import deploy
+    from rundbat import deploy, config
     from rundbat.deploy import DeployError
+
+    # Checkout config from dotconfig before deploying
+    verbose = getattr(args, "verbose", False)
+    try:
+        cfg = config.load_config()
+        dep_cfg = cfg.get("deployments", {}).get(args.name, {})
+        _checkout_config(args.name, dep_cfg, verbose=verbose)
+    except Exception:
+        pass  # deploy() will handle config errors
 
     try:
         result = deploy.deploy(
@@ -405,6 +414,32 @@ def _compose_file_for_deployment(name: str, dep_cfg: dict) -> Path:
     return Path(dep_cfg.get("compose_file", f"docker/docker-compose.{name}.yml"))
 
 
+def _checkout_config(name: str, dep_cfg: dict, verbose: bool = False) -> None:
+    """Load env from dotconfig and write to the deployment's env file.
+
+    Reads config_deployment (defaults to name) from dotconfig and writes
+    it to docker/.<name>.env. No-op if env_source is not dotconfig.
+    """
+    env_source = dep_cfg.get("env_source")
+    if env_source != "dotconfig":
+        return
+
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    config_deployment = dep_cfg.get("config_deployment", name)
+    env_path = Path("docker") / f".{name}.env"
+
+    try:
+        env_content = config.load_env(config_deployment)
+        env_path.parent.mkdir(parents=True, exist_ok=True)
+        env_path.write_text(env_content)
+        if verbose:
+            print(f"  config: dotconfig load -d {config_deployment} → {env_path}", file=sys.stderr)
+    except ConfigError as e:
+        print(f"  Warning: Could not load dotconfig env for {config_deployment}: {e}", file=sys.stderr)
+
+
 def cmd_build(args):
     """Build images for a deployment."""
     verbose = getattr(args, "verbose", False)
@@ -511,6 +546,9 @@ def cmd_up(args):
         print(f"Deploy workflow triggered for {args.name}")
         print(f"  Watch: gh run watch --repo {repo}")
         return
+
+    # Checkout config from dotconfig
+    _checkout_config(args.name, dep_cfg, verbose=verbose)
 
     # Run mode
     if deploy_mode == "run":
@@ -628,6 +666,9 @@ def cmd_restart(args):
     env = {**os.environ}
     if ctx:
         env["DOCKER_CONTEXT"] = ctx
+
+    # Checkout config from dotconfig
+    _checkout_config(args.name, dep_cfg, verbose=verbose)
 
     if deploy_mode == "run":
         # Build not applicable for run mode
