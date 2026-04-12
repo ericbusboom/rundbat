@@ -43,6 +43,17 @@ deployment package: Dockerfile, docker-compose.yml, Justfile, and
 - `just psql` / `just mysql` — database shell (if applicable)
 - `just db-dump` / `just db-restore` — database backup/restore
 
+## Caddy Reverse Proxy
+
+If your deployment target runs Caddy, include reverse proxy labels in
+the compose file:
+
+1. Run `rundbat probe <deployment>` to detect Caddy and save the result.
+2. Re-run `rundbat init-docker --hostname <your-hostname>` to include labels.
+
+If `reverse_proxy: caddy` is already in your deployment config but you
+haven't provided `--hostname`, rundbat will print a reminder.
+
 ## Outputs
 
 ```

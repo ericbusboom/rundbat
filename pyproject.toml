@@ -27,6 +27,11 @@ markers = [
     "requires_managed_db: test requires the managed DigitalOcean Postgres",
 ]
 
+[tool.uv.workspace]
+members = [
+    "tests/proj",
+]
+
 [dependency-groups]
 dev = [
     "pytest",

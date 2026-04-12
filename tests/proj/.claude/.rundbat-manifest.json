@@ -1,9 +1,13 @@
 {
   "files": {
-    ".claude/skills/rundbat/deploy-setup.md": "b3c8eb327d4ca5afbbae4755c0a29bb9425c9243dfe0a1a500f1fc58be04e550",
+    ".claude/skills/rundbat/astro-docker.md": "08e4809297951f28359a36ed2a27c8ad79d6beee4e280639f94d885df627ab58",
+    ".claude/skills/rundbat/deploy-init.md": "6f0c3964369e6eb61002bbcd55b803096fa02f626a003a59656bb4712a0e94b0",
+    ".claude/skills/rundbat/deploy-setup.md": "94bfee0380b4a7a64a57c20ffecc3a29387fcdab9c3683110141f9e616fa73b0",
     ".claude/skills/rundbat/dev-database.md": "639f8597619ed5ff9fd8d67d50c6c432b27e5918ff7f993a1db3270a3142432f",
     ".claude/skills/rundbat/diagnose.md": "c70b1a3517f301406c23ee2275f0367fc167135272bfe9b90ce0562b1c1e0a82",
-    ".claude/skills/rundbat/init-docker.md": "b28cdcd56b106042b549b53b32fef12714258fef3c5a4e896ac934fa7e8cd5f5",
+    ".claude/skills/rundbat/generate.md": "1099df309c37dfcbd8deab6fe92c05fbf37b07035134ab0ed8cb5cde41cc2f57",
+    ".claude/skills/rundbat/github-deploy.md": "047988a31cfbdfe3a2da47fd67ca30fff0416aee73ba17c45a47b6d692d1985e",
+    ".claude/skills/rundbat/init-docker.md": "069a18caf2cd8e74cb8f2f0e1150878584a5a55c98d44f8db992f8db7aa92791",
     ".claude/skills/rundbat/manage-secrets.md": "6f29569afa08862bfecdeb47c0d8df4d835efd0b1c92754b48a6ce2465739acd",
     ".claude/agents/deployment-expert.md": "63632dd0816ff2d18aaac60a23310d31d51f51dc28a9159ab18b98d4dad6d5cf",
     ".claude/rules/rundbat.md": "609a24f6013e33892b9cc39bb802d98aa6e5d007acd5148f59b8a6a624515ce7"

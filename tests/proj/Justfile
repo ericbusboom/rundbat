@@ -1,29 +1,5 @@
-# proj — Docker deployment recipes
+# proj
 
-set dotenv-load
-
-compose := "docker compose -f docker/docker-compose.yml"
-
-# Start databases only (dev: Flask runs on host)
-dev:
-    {{compose}} up -d
-
-# Start all services in local Docker (test)
-test:
-    {{compose}} --profile test up -d --build
-
-# Stop services
-down:
-    {{compose}} --profile test down
-
-# Stop and remove volumes (destructive)
-down-with-data:
-    {{compose}} --profile test down -v
-
-# View logs
-logs *ARGS:
-    {{compose}} --profile test logs {{ARGS}}
-
-# Deploy to production (remote)
-deploy:
-    rundbat deploy prod
+# Run the Flask app
+run:
+    uv run flask --app app run --debug
