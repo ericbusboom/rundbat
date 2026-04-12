@@ -504,7 +504,7 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
 
     for dep_name, dep_cfg in deployments.items():
         ctx = dep_cfg.get("docker_context", "default")
-        compose_file = f"docker/docker-compose.{dep_name}.yml"
+        compose_file = dep_cfg.get("compose_file", f"docker/docker-compose.{dep_name}.yml")
         deploy_mode = dep_cfg.get("deploy_mode", "compose")
         build_strategy = dep_cfg.get("build_strategy", "context")
         is_remote = ctx and ctx != "default"
@@ -952,9 +952,12 @@ def generate_artifacts(
             compose_content = generate_compose_for_deployment(
                 app_name, framework, dep_name, dep_cfg, all_services,
             )
-            compose_path = docker_dir / f"docker-compose.{dep_name}.yml"
+            # Use compose_file from config if set, otherwise derive from name
+            compose_rel = dep_cfg.get("compose_file", f"docker/docker-compose.{dep_name}.yml")
+            compose_path = project_dir / compose_rel
+            compose_path.parent.mkdir(parents=True, exist_ok=True)
             compose_path.write_text(compose_content)
-            generated.append(str(compose_path.relative_to(project_dir)))
+            generated.append(compose_rel)
 
         # Per-deployment env file
         env_source = dep_cfg.get("env_source")
@@ -986,7 +989,7 @@ def generate_artifacts(
         if ga_dep:
             dep_name, dep_cfg = ga_dep
             platform = dep_cfg.get("platform", "linux/amd64")
-            compose_file = f"docker/docker-compose.{dep_name}.yml"
+            compose_file = dep_cfg.get("compose_file", f"docker/docker-compose.{dep_name}.yml")
             deploy_mode = dep_cfg.get("deploy_mode", "compose")
             docker_run_cmd = dep_cfg.get("docker_run_cmd")
 

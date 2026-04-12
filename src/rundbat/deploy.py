@@ -240,7 +240,7 @@ def load_deploy_config(name: str) -> dict:
 
     return {
         "docker_context": deploy_cfg["docker_context"],
-        "compose_file": deploy_cfg.get("compose_file", "docker/docker-compose.yml"),
+        "compose_file": deploy_cfg.get("compose_file", f"docker/docker-compose.{name}.yml"),
         "hostname": deploy_cfg.get("hostname"),
         "host": deploy_cfg.get("host"),
         "platform": deploy_cfg.get("platform"),
@@ -780,8 +780,7 @@ def init_deployment(name: str, host: str, compose_file: str | None = None,
     deploy_entry["reverse_proxy"] = "caddy" if caddy_info["running"] else "none"
     if remote_platform:
         deploy_entry["platform"] = remote_platform
-    if compose_file:
-        deploy_entry["compose_file"] = compose_file
+    deploy_entry["compose_file"] = compose_file or f"docker/docker-compose.{name}.yml"
     if hostname:
         deploy_entry["hostname"] = hostname
     if ssh_key:

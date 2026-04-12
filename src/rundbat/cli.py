@@ -141,14 +141,17 @@ def cmd_init(args):
                     "dev": {
                         "docker_context": local_context,
                         "build_strategy": "context",
+                        "compose_file": "docker/docker-compose.dev.yml",
                     },
                     "prod": {
                         "docker_context": "",
                         "hostname": "",
+                        "compose_file": "docker/docker-compose.prod.yml",
                     },
                     "test": {
                         "docker_context": local_context,
                         "build_strategy": "context",
+                        "compose_file": "docker/docker-compose.test.yml",
                     },
                 },
                 "notes": [],
@@ -377,9 +380,9 @@ def _resolve_deployment(name: str, as_json: bool) -> tuple[dict, dict] | None:
     return cfg, deployments[name]
 
 
-def _compose_file_for_deployment(name: str) -> Path:
-    """Return the expected compose file path for a deployment."""
-    return Path(f"docker/docker-compose.{name}.yml")
+def _compose_file_for_deployment(name: str, dep_cfg: dict) -> Path:
+    """Return the compose file path for a deployment from its config."""
+    return Path(dep_cfg.get("compose_file", f"docker/docker-compose.{name}.yml"))
 
 
 def cmd_build(args):
@@ -434,7 +437,7 @@ def cmd_build(args):
         _error(f"Deployment '{args.name}' uses run mode — no local build. Use 'rundbat build' with github-actions strategy.", args.json)
         return
 
-    compose_file = _compose_file_for_deployment(args.name)
+    compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
         _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
         return
@@ -507,7 +510,7 @@ def cmd_up(args):
         return
 
     # Compose mode
-    compose_file = _compose_file_for_deployment(args.name)
+    compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
         _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
         return
@@ -553,7 +556,7 @@ def cmd_down(args):
         print(f"Stopped {app_name}")
         return
 
-    compose_file = _compose_file_for_deployment(args.name)
+    compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
         _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
         return
@@ -587,7 +590,7 @@ def cmd_logs(args):
         subprocess.run(cmd, env=env)
         return
 
-    compose_file = _compose_file_for_deployment(args.name)
+    compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
         _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
         return

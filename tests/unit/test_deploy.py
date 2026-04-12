@@ -220,7 +220,7 @@ class TestLoadDeployConfig:
         }))
 
         result = load_deploy_config("prod")
-        assert result["compose_file"] == "docker/docker-compose.yml"
+        assert result["compose_file"] == "docker/docker-compose.prod.yml"
 
     def test_missing_deployment(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
