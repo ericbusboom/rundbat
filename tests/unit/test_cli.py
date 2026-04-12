@@ -45,6 +45,7 @@ def test_expected_commands():
     assert "build" in result.stdout
     assert "up" in result.stdout
     assert "down" in result.stdout
+    assert "restart" in result.stdout
     assert "logs" in result.stdout
     assert "deploy" in result.stdout
     assert "deploy-init" in result.stdout
@@ -102,6 +103,11 @@ class TestSubcommandHelp:
     def test_logs_help(self):
         result = _run(["logs", "--help"])
         assert result.returncode == 0
+
+    def test_restart_help(self):
+        result = _run(["restart", "--help"])
+        assert result.returncode == 0
+        assert "--build" in result.stdout
 
     def test_deploy_help(self):
         result = _run(["deploy", "--help"])

@@ -611,6 +611,72 @@ def cmd_logs(args):
     _run_cmd(cmd, env=env, verbose=verbose)
 
 
+def cmd_restart(args):
+    """Restart a deployment: down then up. With --build: build, down, up."""
+    verbose = getattr(args, "verbose", False)
+
+    resolved = _resolve_deployment(args.name, args.json)
+    if not resolved:
+        return
+    cfg, dep_cfg = resolved
+
+    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    build_strategy = dep_cfg.get("build_strategy", "context")
+    ctx = dep_cfg.get("docker_context", "default")
+    app_name = cfg.get("app_name", "app")
+
+    env = {**os.environ}
+    if ctx:
+        env["DOCKER_CONTEXT"] = ctx
+
+    if deploy_mode == "run":
+        # Build not applicable for run mode
+        if getattr(args, "build", False):
+            print("Note: --build ignored for run-mode deployments", file=sys.stderr)
+        _run_cmd(["docker", "stop", app_name], env=env, verbose=verbose, capture_output=True)
+        _run_cmd(["docker", "rm", app_name], env=env, verbose=verbose, capture_output=True)
+        # Re-use cmd_up logic for run mode
+        from rundbat.deploy import _deploy_run, DeployError
+        try:
+            result = _deploy_run(args.name, dep_cfg, app_name, dry_run=False)
+            _output(result, args.json)
+        except DeployError as e:
+            _error(str(e), args.json)
+        return
+
+    # Compose mode
+    compose_file = _compose_file_for_deployment(args.name, dep_cfg)
+    if not compose_file.exists():
+        _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
+        return
+
+    # Build if requested
+    if getattr(args, "build", False):
+        cmd = ["docker", "compose", "-f", str(compose_file), "build"]
+        result = _run_cmd(cmd, env=env, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+
+    # Down
+    cmd = ["docker", "compose", "-f", str(compose_file), "down"]
+    result = _run_cmd(cmd, env=env, verbose=verbose)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+    # Pull for github-actions strategy
+    if build_strategy == "github-actions":
+        _run_cmd(
+            ["docker", "compose", "-f", str(compose_file), "pull"],
+            env=env, verbose=verbose,
+        )
+
+    # Up
+    cmd = ["docker", "compose", "-f", str(compose_file), "up", "-d"]
+    result = _run_cmd(cmd, env=env, verbose=verbose)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -647,6 +713,7 @@ Commands:
   rundbat build <name>       Build images for a deployment
   rundbat up <name>          Start a deployment
   rundbat down <name>        Stop a deployment
+  rundbat restart <name>     Restart (down + up; --build to rebuild first)
   rundbat logs <name>        Tail logs from a deployment
   rundbat deploy <name>      Deploy to a remote host
   rundbat deploy-init <name> Set up a deployment target""",
@@ -741,6 +808,20 @@ Commands:
     )
     _add_json_flag(logs_parser)
     logs_parser.set_defaults(func=cmd_logs)
+
+    # rundbat restart <name>
+    restart_parser = subparsers.add_parser(
+        "restart", help="Restart a deployment (down + up)",
+    )
+    restart_parser.add_argument(
+        "name", help="Deployment name (e.g., dev, prod)",
+    )
+    restart_parser.add_argument(
+        "--build", action="store_true", default=False,
+        help="Build images before restarting (build + down + up)",
+    )
+    _add_json_flag(restart_parser)
+    restart_parser.set_defaults(func=cmd_restart)
 
     # rundbat deploy <name>
     deploy_parser = subparsers.add_parser(
