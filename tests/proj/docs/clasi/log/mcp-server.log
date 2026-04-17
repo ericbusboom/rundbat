@@ -1,0 +1,10 @@
+2026-04-15T11:29:37 [INFO] ============================================================
+2026-04-15T11:29:37 [INFO] CLASI MCP server starting
+2026-04-15T11:29:37 [INFO]   serving: team-lead (tier 0)
+2026-04-15T11:29:37 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat/tests/proj
+2026-04-15T11:29:37 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi
+2026-04-15T11:29:37 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-15T11:29:37 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-15T11:29:37 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/tests/proj/docs/clasi/log/mcp-server.log
+2026-04-15T11:29:37 [INFO]   tools registered: 30
+2026-04-15T11:29:37 [INFO] CLASI MCP server ready

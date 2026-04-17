@@ -6,5 +6,13 @@
 </head>
 <body>
     <h1>Hello from proj</h1>
+    <p>{{ now }}</p>
+    <table>
+        <tr><th>Key</th><th>Value</th></tr>
+        <tr><td>FOO</td><td>{{ config.FOO }}</td></tr>
+        <tr><td>BAR</td><td>{{ config.BAR }}</td></tr>
+        <tr><td>FOO_SECRET</td><td>{{ config.FOO_SECRET }}</td></tr>
+        <tr><td>BAR_SECRET</td><td>{{ config.BAR_SECRET }}</td></tr>
+    </table>
 </body>
 </html>

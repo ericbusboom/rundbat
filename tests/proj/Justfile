@@ -1,5 +1,23 @@
 # proj
 
-# Run the Flask app
+compose := "docker compose -f docker/docker-compose.test.yml"
+
+# Run the Flask app locally
 run:
-    uv run flask --app app run --debug
+    dotconfig load -d dev && set -a && source .env && set +a && uv run flask --app app run --debug
+
+# Generate the .test.env from dotconfig
+gen-env:
+    dotconfig load -d dev -o docker/.test.env
+
+# Start the test container
+up: gen-env
+    {{compose}} up -d --build
+
+# Stop the test container
+down:
+    {{compose}} down
+
+# View logs
+logs *ARGS:
+    {{compose}} logs {{ARGS}}

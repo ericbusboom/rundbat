@@ -7,7 +7,7 @@ deployments:
     build_strategy: context
     compose_file: docker/docker-compose.dev.yml
     config_deployment: dev
-    docker_context: swarm1
+    docker_context: orbstack 
     env_source: dotconfig
   prod:
     compose_file: docker/docker-compose.prod.yml
@@ -19,6 +19,6 @@ deployments:
     build_strategy: context
     compose_file: docker/docker-compose.test.yml
     config_deployment: test
-    docker_context: swarm1
+    docker_context: braeburn
     env_source: dotconfig
 notes: []

@@ -12,9 +12,10 @@ __pycache__/
 *.pyc
 *.pyo
 
-# rundbat / dotconfig
-config/
-docker/
+# rundbat / dotconfig (keep config/ and entrypoint for container use)
+docker/docker-compose*.yml
+docker/.env.example
+docker/.*.env
 
 # Docs and planning artifacts
 docs/

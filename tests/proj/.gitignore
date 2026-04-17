@@ -1,4 +1,9 @@
 .claude
+__pycache__/
 
 # Per-deployment env files (contain secrets from dotconfig)
 docker/.*.env
+# dotconfig — assembled env files contain decrypted secrets
+.env
+.env.*
+!.env.example

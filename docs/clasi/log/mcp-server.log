@@ -406,3 +406,13 @@ sprint_id
 2026-04-11T08:48:55 [INFO] [team-lead]   OK move_todo_to_done -> ([TextContent(type='text', text='{\n  "old_path": "/Users/eric/proj/ai-project/rundbat/docs/clasi/todo/in-progress/plan-deployment-initialization-guided-setup-and-configuration-model.md",\n  "new_path": "/Users/eric/proj/ai-project/rundbat/docs/clasi/todo/done/plan-deployment-initialization-guided-setup-and-configuration-model.md"\n}', annotations=None, meta=None)], {'result': '{\n  "old_path": "/Users/eric/proj/ai-project/rundbat/docs/clasi/todo/in-progress/plan-deployment-initialization-guided...
 2026-04-11T08:49:03 [INFO] [team-lead] CALL close_sprint({"sprint_id": "007", "branch_name": "sprint/007-docker-lifecycle-and-deployment-initialization", "main_branch": "main", "push_tags": "False"})
 2026-04-11T08:49:11 [INFO] [team-lead]   OK close_sprint -> ([TextContent(type='text', text='{\n  "status": "error",\n  "error": {\n    "step": "merge",\n    "message": "Rebase of sprint/007-docker-lifecycle-and-deployment-initialization onto main failed: error: cannot rebase: You have unstaged changes.\\nerror: Please commit or stash them.",\n    "recovery": {\n      "recorded": true,\n      "allowed_paths": [],\n      "instruction": "Resolve the merge conflicts in the listed files, then call close_sprint again."\n    }\n  },\n  "completed_steps": [\n  ...
+2026-04-15T11:29:36 [INFO] ============================================================
+2026-04-15T11:29:36 [INFO] CLASI MCP server starting
+2026-04-15T11:29:36 [INFO]   serving: team-lead (tier 0)
+2026-04-15T11:29:36 [INFO]   project_root: /Users/eric/proj/ai-project/rundbat
+2026-04-15T11:29:36 [INFO]   clasi_dir: /Users/eric/proj/ai-project/rundbat/docs/clasi
+2026-04-15T11:29:36 [INFO]   content_root: /Users/eric/.local/pipx/venvs/clasi/lib/python3.14/site-packages/clasi
+2026-04-15T11:29:36 [INFO]   python: /Users/eric/.local/pipx/venvs/clasi/bin/python
+2026-04-15T11:29:36 [INFO]   log_file: /Users/eric/proj/ai-project/rundbat/docs/clasi/log/mcp-server.log
+2026-04-15T11:29:36 [INFO]   tools registered: 30
+2026-04-15T11:29:36 [INFO] CLASI MCP server ready
