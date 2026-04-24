@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Generator image/build emission and swarm validation
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -52,26 +52,26 @@ Bump `pyproject.toml` version.
 
 ## Acceptance Criteria
 
-- [ ] `generate_compose_for_deployment()` emits both `image:` and
+- [x] `generate_compose_for_deployment()` emits both `image:` and
       `build:` for swarm + context and swarm + ssh-transfer when
       `image:` is set.
-- [ ] The github-actions + swarm code path is unchanged (existing
+- [x] The github-actions + swarm code path is unchanged (existing
       test `test_stack_mode_generates_compose` still passes).
-- [ ] A `swarm: true` config with no `image:` causes
+- [x] A `swarm: true` config with no `image:` causes
       `generate_artifacts()` to return `{"error": "..."}` with a
       helpful message and no compose file written for that
       deployment.
-- [ ] `cmd_generate` surfaces the error via `_error()` (non-zero
+- [x] `cmd_generate` surfaces the error via `_error()` (non-zero
       exit).
-- [ ] New test class `TestGenerateComposeSwarmImage` covers the
+- [x] New test class `TestGenerateComposeSwarmImage` covers the
       6-cell matrix: {context, ssh-transfer, github-actions} ×
       {image supplied, image missing}.
-- [ ] `test_stack_mode_generates_compose` complemented with a test
+- [x] `test_stack_mode_generates_compose` complemented with a test
       that asserts `image:` is present.
-- [ ] Non-swarm (compose-mode) config with no `image:` still works
+- [x] Non-swarm (compose-mode) config with no `image:` still works
       unchanged for context/ssh-transfer (regression).
-- [ ] `uv run pytest` passes.
-- [ ] Version bumped in `pyproject.toml`.
+- [x] `uv run pytest` passes.
+- [x] Version bumped in `pyproject.toml`.
 
 ## Testing
 
