@@ -351,3 +351,4 @@
 21:10:59Z role-guard       0 no-path      tool_name=Edit agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
 21:11:07Z role-guard       0 no-path      tool_name=Edit agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
 21:11:27Z role-guard       0 no-path      tool_name=Edit agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:12:32Z sub-stop         0 logged       agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a

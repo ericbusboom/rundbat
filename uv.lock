@@ -176,7 +176,7 @@ wheels = [
 
 [[package]]
 name = "dotconfig"
-version = "0.20260423.3"
+version = "0.20260423.4"
 source = { editable = "../../code-projects/dotconfig" }
 dependencies = [
     { name = "click" },
