@@ -1,12 +1,12 @@
 ---
-id: "009"
-title: "Swarm image reference for non-GA strategies"
-status: planning
+id: 009
+title: Swarm image reference for non-GA strategies
+status: done
 branch: sprint/009-swarm-image-reference-for-non-ga-strategies
 use-cases:
-  - SUC-001
-  - SUC-002
-  - SUC-003
+- SUC-001
+- SUC-002
+- SUC-003
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
