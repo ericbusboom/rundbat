@@ -2,7 +2,10 @@
 status: done
 sprint: 009
 tickets:
-- 009-001
+- T001
+- T002
+- T003
+- T004
 ---
 
 # Swarm stack deploy fails with `build:`-only compose — emit or require an `image:` in swarm mode
