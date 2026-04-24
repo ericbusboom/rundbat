@@ -76,6 +76,40 @@ If the probe recorded `swarm: true` AND the deployment has
 even if `deploy_mode` is absent. Explicit `deploy_mode: compose` on a
 `swarm: true` deployment still wins — the user is in charge.
 
+## Image requirement
+
+**Every Swarm deployment must declare an `image:` on the deployment
+entry.** Swarm does not build images; it pulls them by tag. A stack
+compose that only has `build:` deploys with the opaque failure
+`invalid image reference for service app: no image specified`.
+
+```yaml
+deployments:
+  prod:
+    swarm: true
+    deploy_mode: stack
+    build_strategy: ssh-transfer
+    image: myapp:prod          # required when swarm: true
+    docker_context: swarm1
+```
+
+`rundbat generate` validates this at generate time. If `swarm: true`
+is set and `image:` is missing, generation fails with a clear error
+and writes no compose file.
+
+How each `build_strategy` satisfies the requirement:
+
+| Strategy | Where the image comes from |
+|---|---|
+| `github-actions` | Workflow pushes `ghcr.io/<owner>/<repo>:latest`; the deployment's `image:` field references it (defaulted to `ghcr.io/owner/<app>:latest` if omitted). |
+| `context` | An image with the declared tag must already exist on the remote (e.g. previously built via `rundbat build`) or be pullable from a registry. Use this when the remote builds on its own schedule. |
+| `ssh-transfer` | `rundbat build` tags the local image with the declared `image:`; `rundbat up` `docker save`/`load`s it to the swarm nodes. The tag in compose and the transferred tag always match. |
+
+For `context` and `ssh-transfer`, generated compose emits **both**
+`image:` and `build:` — `docker compose build` uses `build:` to
+produce a locally-tagged image; `docker stack deploy` uses `image:`
+to pull it on the swarm nodes.
+
 ## Secrets
 
 See `docker-secrets-swarm` for the full workflow. Short version:
@@ -112,6 +146,7 @@ detected.
 | Tasks crash-loop with "secret not found" | `docker --context <ctx> secret ls \| grep <app>` — the external secret name in compose must resolve. |
 | "cannot update" on deploy | `docker --context <ctx> service ps <stack>_<svc> --no-trunc` — task-level errors live here, not in service logs. |
 | Routing broken after swarm enable | Caddy labels must live under `services.<svc>.deploy.labels`, not top-level `labels:`. `rundbat generate` handles this — re-run it. |
+| `invalid image reference for service app: no image specified` | The deployment needs `image: <tag>` set. See the **Image requirement** section above. `rundbat generate` now catches this at generate time. |
 
 Useful commands when a stack misbehaves:
 
