@@ -1,8 +1,8 @@
 ---
-status: in-progress
+status: done
 sprint: '010'
 tickets:
-- 010-001
+- '001'
 ---
 
 # Bug: `rundbat secret create` can't find any dotconfig keys

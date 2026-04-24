@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: Fix dotconfig load path in secret create
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []

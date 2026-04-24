@@ -1,9 +1,11 @@
 ---
 id: '002'
 title: Declarative secrets schema and per-service routing
-status: todo
-use-cases: [SUC-002]
-depends-on: ['001']
+status: in-progress
+use-cases:
+- SUC-002
+depends-on:
+- '001'
 github-issue: ''
 todo: rundbat-swarm-secrets-feature-request.md
 ---
@@ -77,22 +79,22 @@ The swarm-emission block in `generate_compose` walks this list and:
 
 ## Acceptance Criteria
 
-- [ ] `load_config()` (or a callee) normalizes both flat-list and
+- [x] `load_config()` (or a callee) normalizes both flat-list and
       declarative-map forms to the canonical map shape before
       returning
-- [ ] Schema validation raises `ConfigError` for invalid entries
+- [x] Schema validation raises `ConfigError` for invalid entries
       (mutually-exclusive `from_env`/`from_file`, missing services)
-- [ ] Generator attaches each declared secret only to the services
+- [x] Generator attaches each declared secret only to the services
       in its `services:` list
-- [ ] `*_FILE` env vars emitted on listed services only
-- [ ] Top-level `secrets:` block lists each declared external name
+- [x] `*_FILE` env vars emitted on listed services only
+- [x] Top-level `secrets:` block lists each declared external name
       with `external: true`
-- [ ] Existing tests in `tests/unit/test_generators.py` for the
+- [x] Existing tests in `tests/unit/test_generators.py` for the
       flat-list shape still pass without change
-- [ ] New tests cover: declarative map round-trip, per-service
+- [x] New tests cover: declarative map round-trip, per-service
       routing, validation errors, flat-list expansion is exact
-- [ ] Version bumped via `clasi version bump`
-- [ ] All tests pass; commit references T02
+- [x] Version bumped via `clasi version bump`
+- [x] All tests pass; commit references T02
 
 ## Testing
 

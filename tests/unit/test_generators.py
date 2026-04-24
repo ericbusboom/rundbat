@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from rundbat.generators import (
@@ -897,6 +898,120 @@ class TestGenerateComposeSwarmSecrets:
         data = yaml.safe_load(out)
         assert "secrets" not in data
         assert "secrets" not in data["services"]["app"]
+
+
+class TestGenerateComposeSwarmDeclarativeSecrets:
+    """Sprint 010 / T02 — declarative secrets schema and per-service routing."""
+
+    def test_declarative_map_equivalent_to_flat_list(self):
+        """The map form with one env-backed secret matches the flat list."""
+        flat = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD"])
+        mapping = _swarm_deploy_cfg(secrets={
+            "postgres_password": {
+                "from_env": "POSTGRES_PASSWORD",
+                "services": ["app"],
+            }
+        })
+        out_flat = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", flat
+        )
+        out_map = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", mapping
+        )
+        # Both forms should produce identical compose body.
+        body_flat = "\n".join(out_flat.splitlines()[1:])
+        body_map = "\n".join(out_map.splitlines()[1:])
+        assert yaml.safe_load(body_flat) == yaml.safe_load(body_map)
+
+    def test_per_service_routing_attaches_only_listed_services(self):
+        """Each declared secret attaches only to the services in services:."""
+        cfg = _swarm_deploy_cfg(secrets={
+            "api_token": {
+                "from_env": "LEAGUESYNC_API_TOKEN",
+                "services": ["app"],
+            },
+            "meetup_client_id": {
+                "from_env": "MEETUP_CLIENT_ID",
+                "services": ["postgres"],
+            },
+        })
+        all_services = [{"type": "postgres", "version": "16"}]
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg,
+            all_services=all_services,
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        # app gets api_token only
+        app_targets = {s["target"] for s in data["services"]["app"]["secrets"]}
+        assert app_targets == {"api_token"}
+        # postgres gets meetup_client_id only
+        pg_targets = {s["target"] for s in data["services"]["postgres"]["secrets"]}
+        assert pg_targets == {"meetup_client_id"}
+
+    def test_env_file_var_only_on_listed_services(self):
+        """*_FILE env vars are emitted only on the services that own the secret."""
+        cfg = _swarm_deploy_cfg(secrets={
+            "api_token": {
+                "from_env": "LEAGUESYNC_API_TOKEN",
+                "services": ["app"],
+            },
+        })
+        all_services = [{"type": "postgres", "version": "16"}]
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg,
+            all_services=all_services,
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        app_env = data["services"]["app"].get("environment", {})
+        assert app_env.get("LEAGUESYNC_API_TOKEN_FILE") == "/run/secrets/api_token"
+        # postgres environment must not have the FILE var
+        pg_env = data["services"]["postgres"].get("environment", {})
+        assert "LEAGUESYNC_API_TOKEN_FILE" not in (pg_env or {})
+
+    def test_top_level_secrets_block_lists_each_target(self):
+        cfg = _swarm_deploy_cfg(secrets={
+            "api_token": {"from_env": "X", "services": ["app"]},
+            "session_key": {"from_env": "Y", "services": ["app"]},
+        })
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        assert data["secrets"] == {
+            "myapp_api_token": {"external": True},
+            "myapp_session_key": {"external": True},
+        }
+
+    def test_invalid_schema_both_sources_raises(self):
+        from rundbat.config import ConfigError
+        cfg = _swarm_deploy_cfg(secrets={
+            "bad": {"from_env": "X", "from_file": "x.pem", "services": ["app"]},
+        })
+        with pytest.raises(ConfigError) as exc:
+            generate_compose_for_deployment(
+                "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+            )
+        assert "from_env" in str(exc.value) and "from_file" in str(exc.value)
+
+    def test_invalid_schema_no_source_raises(self):
+        from rundbat.config import ConfigError
+        cfg = _swarm_deploy_cfg(secrets={
+            "bad": {"services": ["app"]},
+        })
+        with pytest.raises(ConfigError):
+            generate_compose_for_deployment(
+                "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+            )
+
+    def test_invalid_schema_empty_services_raises(self):
+        from rundbat.config import ConfigError
+        cfg = _swarm_deploy_cfg(secrets={
+            "bad": {"from_env": "X", "services": []},
+        })
+        with pytest.raises(ConfigError):
+            generate_compose_for_deployment(
+                "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+            )
 
 
 class TestGenerateJustfileStackMode:

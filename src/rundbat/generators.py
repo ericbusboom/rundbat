@@ -536,31 +536,35 @@ def generate_compose_for_deployment(
                 deploy_block["labels"] = dict(caddy_labels)
             svc_body["deploy"] = deploy_block
 
-        # Secret stanzas (T04)
-        declared_secrets = _collect_declared_secrets(deployment_cfg,
-                                                    included_services)
-        if declared_secrets:
+        # Secret stanzas (sprint 010 / T02)
+        attachments = _collect_secret_attachments(deployment_cfg)
+        if attachments:
             top_secrets: dict[str, Any] = {}
-            for key in declared_secrets:
-                secret_ref = f"{app_name}_{key.lower()}"
+            for rec in attachments:
+                secret_ref = f"{app_name}_{rec['target']}"
                 top_secrets[secret_ref] = {"external": True}
             compose["secrets"] = top_secrets
 
-            # Attach to app service only — the app is what consumes
-            # these secrets via _FILE env vars. Database services
-            # receive their credentials through the existing env_file
-            # path for now.
-            app_secret_attachments = []
-            app_env = app_svc.setdefault("environment", {})
-            for key in declared_secrets:
-                target = key.lower()
+            # Per-service routing — each declared secret attaches only
+            # to the services in its ``services:`` list. ``*_FILE`` env
+            # vars are emitted only for env-backed secrets; file-backed
+            # secrets leave the env-var wiring to the app author.
+            for rec in attachments:
+                target = rec["target"]
                 secret_ref = f"{app_name}_{target}"
-                app_secret_attachments.append({
-                    "source": secret_ref,
-                    "target": target,
-                })
-                app_env[f"{key.upper()}_FILE"] = f"/run/secrets/{target}"
-            app_svc["secrets"] = app_secret_attachments
+                attach_entry = {"source": secret_ref, "target": target}
+                for svc_name in rec["services"]:
+                    svc_body = compose["services"].get(svc_name)
+                    if svc_body is None:
+                        # Don't fabricate a service entry — operators
+                        # can spot the typo. Skip silently here; T02's
+                        # config-load validation handles known names.
+                        continue
+                    svc_body.setdefault("secrets", []).append(attach_entry)
+                    if rec["source_kind"] == "env":
+                        env_block = svc_body.setdefault("environment", {})
+                        env_var = f"{rec['source'].upper()}_FILE"
+                        env_block[env_var] = f"/run/secrets/{target}"
 
     if not compose["volumes"]:
         del compose["volumes"]
@@ -576,33 +580,20 @@ def generate_compose_for_deployment(
     return body
 
 
-def _collect_declared_secrets(deployment_cfg: dict[str, Any],
-                              included_services: list[dict[str, Any]]) -> list[str]:
-    """Return the list of declared secret keys for a deployment.
+def _collect_secret_attachments(
+    deployment_cfg: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return normalized secret attachment records for a deployment.
 
-    Reads ``deployment_cfg['secrets']`` when set (a list of uppercase
-    key names like ``["POSTGRES_PASSWORD", "SESSION_SECRET"]``). Falls
-    back to scanning each included service for a ``secrets`` list.
-    Keys are returned in the exact order they appear, with duplicates
-    removed.
+    Delegates to :func:`rundbat.config.normalize_secrets_block`. Both
+    the legacy flat-list shape (``secrets: [KEY1, KEY2]``) and the
+    declarative per-target map (sprint 010) are accepted; both are
+    normalized to the same record shape downstream emission code can
+    walk uniformly.
     """
-    seen: set[str] = set()
-    keys: list[str] = []
+    from rundbat import config as _config
 
-    for raw in deployment_cfg.get("secrets") or []:
-        k = str(raw)
-        if k and k not in seen:
-            seen.add(k)
-            keys.append(k)
-
-    for svc in included_services:
-        for raw in svc.get("secrets") or []:
-            k = str(raw)
-            if k and k not in seen:
-                seen.add(k)
-                keys.append(k)
-
-    return keys
+    return _config.normalize_secrets_block(deployment_cfg)
 
 
 # ---------------------------------------------------------------------------

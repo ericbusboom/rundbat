@@ -251,6 +251,106 @@ class TestLoadEnvDict:
         assert "JSON object" in str(exc.value)
 
 
+class TestNormalizeSecretsBlock:
+    """Sprint 010 / T02 — declarative secrets schema normalization."""
+
+    def test_none_returns_empty_list(self):
+        from rundbat.config import normalize_secrets_block
+        assert normalize_secrets_block({}) == []
+
+    def test_flat_list_expands_to_app_services(self):
+        from rundbat.config import normalize_secrets_block
+        records = normalize_secrets_block(
+            {"secrets": ["POSTGRES_PASSWORD", "SESSION_SECRET"]}
+        )
+        assert records == [
+            {"target": "postgres_password", "source_kind": "env",
+             "source": "POSTGRES_PASSWORD", "services": ["app"]},
+            {"target": "session_secret", "source_kind": "env",
+             "source": "SESSION_SECRET", "services": ["app"]},
+        ]
+
+    def test_flat_list_uses_default_services_override(self):
+        from rundbat.config import normalize_secrets_block
+        records = normalize_secrets_block(
+            {"secrets": ["X"]}, default_services=["api"]
+        )
+        assert records[0]["services"] == ["api"]
+
+    def test_map_form_round_trip(self):
+        from rundbat.config import normalize_secrets_block
+        cfg = {"secrets": {
+            "api_token": {"from_env": "T", "services": ["api"]},
+            "key_file": {"from_file": "k.pem", "services": ["worker"]},
+        }}
+        records = normalize_secrets_block(cfg)
+        assert records == [
+            {"target": "api_token", "source_kind": "env",
+             "source": "T", "services": ["api"]},
+            {"target": "key_file", "source_kind": "file",
+             "source": "k.pem", "services": ["worker"]},
+        ]
+
+    def test_map_with_both_sources_raises(self):
+        from rundbat.config import normalize_secrets_block
+        with pytest.raises(ConfigError) as exc:
+            normalize_secrets_block({"secrets": {
+                "x": {"from_env": "A", "from_file": "a.pem",
+                      "services": ["app"]},
+            }})
+        assert "from_env" in str(exc.value)
+        assert "from_file" in str(exc.value)
+
+    def test_map_with_no_source_raises(self):
+        from rundbat.config import normalize_secrets_block
+        with pytest.raises(ConfigError):
+            normalize_secrets_block({"secrets": {
+                "x": {"services": ["app"]},
+            }})
+
+    def test_map_with_empty_services_raises(self):
+        from rundbat.config import normalize_secrets_block
+        with pytest.raises(ConfigError):
+            normalize_secrets_block({"secrets": {
+                "x": {"from_env": "X", "services": []},
+            }})
+
+    def test_map_with_missing_services_uses_default(self):
+        from rundbat.config import normalize_secrets_block
+        records = normalize_secrets_block({"secrets": {
+            "x": {"from_env": "X"},
+        }})
+        assert records[0]["services"] == ["app"]
+
+    def test_duplicate_target_in_flat_list_raises(self):
+        from rundbat.config import normalize_secrets_block
+        with pytest.raises(ConfigError):
+            normalize_secrets_block({"secrets": ["X", "X"]})
+
+    def test_invalid_secrets_type_raises(self):
+        from rundbat.config import normalize_secrets_block
+        with pytest.raises(ConfigError):
+            normalize_secrets_block({"secrets": "not a list or dict"})
+
+
+class TestManagerContextFor:
+    """Sprint 010 / T05 wired up early — the helper is needed by T02."""
+
+    def test_defaults_to_docker_context(self):
+        from rundbat.config import manager_context_for
+        assert manager_context_for({"docker_context": "swarm"}) == "swarm"
+
+    def test_explicit_manager_overrides(self):
+        from rundbat.config import manager_context_for
+        assert manager_context_for(
+            {"docker_context": "swarm2", "manager": "swarm1"}
+        ) == "swarm1"
+
+    def test_no_context_returns_none(self):
+        from rundbat.config import manager_context_for
+        assert manager_context_for({}) is None
+
+
 class TestSecretCreateBytewise:
     """Verify ``cmd_secret_create`` pipes the byte-for-byte value.
 

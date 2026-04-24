@@ -133,6 +133,126 @@ def load_env(env: str) -> str:
     return _run_dotconfig(["load", "-d", env, "--stdout"])
 
 
+def normalize_secrets_block(
+    deployment_cfg: dict,
+    *,
+    default_services: list[str] | None = None,
+) -> list[dict]:
+    """Normalize a deployment's ``secrets:`` block to attachment records.
+
+    Returns a list of dicts with keys ``target``, ``source_kind``,
+    ``source``, and ``services`` — one per declared secret. Both
+    schema forms are accepted:
+
+    - **Flat list** (sprint 008 shorthand): ``secrets: [KEY1, KEY2]``.
+      Each entry expands to
+      ``{target: KEY1.lower(), source_kind: "env", source: KEY1,
+        services: default_services}``.
+    - **Per-target map** (sprint 010): each value is a dict with
+      either ``from_env: <ENV_KEY>`` or ``from_file: <filename>``,
+      plus a ``services:`` list naming compose services that should
+      attach the secret. ``target`` is the map key (already in the
+      stable logical form, e.g. ``meetup_private_key``).
+
+    ``default_services`` is the fallback for the flat-list case and
+    for map entries with no ``services:`` key. Defaults to
+    ``["app"]`` to preserve the sprint 008 behavior.
+
+    Raises ``ConfigError`` on:
+
+    - Both ``from_env`` and ``from_file`` set on the same entry
+    - Neither ``from_env`` nor ``from_file`` set
+    - ``services:`` key present but empty / not a list
+    - A flat-list entry whose lowered name collides with a map key
+    """
+    if default_services is None:
+        default_services = ["app"]
+
+    raw = deployment_cfg.get("secrets")
+    if raw is None:
+        return []
+
+    records: list[dict] = []
+    seen_targets: set[str] = set()
+
+    if isinstance(raw, list):
+        for entry in raw:
+            key = str(entry)
+            if not key:
+                raise ConfigError(
+                    "Empty entry in deployment 'secrets:' list"
+                )
+            target = key.lower()
+            if target in seen_targets:
+                raise ConfigError(
+                    f"Duplicate secret target '{target}' in 'secrets:' list"
+                )
+            seen_targets.add(target)
+            records.append({
+                "target": target,
+                "source_kind": "env",
+                "source": key,
+                "services": list(default_services),
+            })
+        return records
+
+    if isinstance(raw, dict):
+        for target, body in raw.items():
+            if target in seen_targets:
+                raise ConfigError(
+                    f"Duplicate secret target '{target}' in 'secrets:'"
+                )
+            seen_targets.add(target)
+            if not isinstance(body, dict):
+                raise ConfigError(
+                    f"Secret '{target}' must be a mapping with "
+                    f"'from_env' or 'from_file'"
+                )
+            from_env = body.get("from_env")
+            from_file = body.get("from_file")
+            if from_env and from_file:
+                raise ConfigError(
+                    f"Secret '{target}' has both 'from_env' and "
+                    f"'from_file' set; pick one"
+                )
+            if not from_env and not from_file:
+                raise ConfigError(
+                    f"Secret '{target}' must set either 'from_env' "
+                    f"or 'from_file'"
+                )
+            services = body.get("services", default_services)
+            if not isinstance(services, list) or not services:
+                raise ConfigError(
+                    f"Secret '{target}' must have a non-empty "
+                    f"'services:' list"
+                )
+            records.append({
+                "target": str(target),
+                "source_kind": "env" if from_env else "file",
+                "source": str(from_env or from_file),
+                "services": list(services),
+            })
+        return records
+
+    raise ConfigError(
+        "deployment 'secrets:' must be a list or a mapping"
+    )
+
+
+def manager_context_for(deployment_cfg: dict) -> str | None:
+    """Return the docker context where secrets are managed.
+
+    Defaults to ``deployment_cfg['docker_context']``. Override per
+    deployment with an optional ``manager:`` field — useful when the
+    swarm manager (control plane) and worker context (where tasks
+    run) are different docker contexts.
+    """
+    explicit = deployment_cfg.get("manager")
+    if explicit:
+        return str(explicit)
+    return deployment_cfg.get("docker_context")
+
+
 def load_env_dict(env: str) -> dict:
     """Load a deployment's merged env as a clean ``{KEY: value}`` dict.
 
