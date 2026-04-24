@@ -1,9 +1,14 @@
 ---
-id: "010"
-title: "Swarm Secrets Declarative Management and Bugfix"
-status: planning
+id: '010'
+title: Swarm Secrets Declarative Management and Bugfix
+status: done
 branch: sprint/010-swarm-secrets-declarative-management-and-bugfix
-use-cases: [uc-secret-create-bug, uc-declarative-secrets, uc-secrets-from-file, uc-secrets-cmd, uc-secrets-manager]
+use-cases:
+- uc-secret-create-bug
+- uc-declarative-secrets
+- uc-secrets-from-file
+- uc-secrets-cmd
+- uc-secrets-manager
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
