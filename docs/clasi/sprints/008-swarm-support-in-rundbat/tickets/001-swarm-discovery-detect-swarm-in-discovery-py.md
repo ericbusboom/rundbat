@@ -1,10 +1,11 @@
 ---
-id: "001"
-title: "Swarm discovery: detect_swarm() in discovery.py"
-status: todo
-use-cases: [SUC-001]
+id: '001'
+title: 'Swarm discovery: detect_swarm() in discovery.py'
+status: in-progress
+use-cases:
+- SUC-001
 depends-on: []
-github-issue: ""
+github-issue: ''
 todo: swarm-support-in-rundbat.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
@@ -42,20 +43,20 @@ rule — this function only reports facts.
 
 ## Acceptance Criteria
 
-- [ ] `detect_swarm(context)` exists in `src/rundbat/discovery.py`
-- [ ] Runs `docker info --format '{{json .Swarm}}'` with
+- [x] `detect_swarm(context)` exists in `src/rundbat/discovery.py`
+- [x] Runs `docker info --format '{{json .Swarm}}'` with
       `--context <context>`
-- [ ] Parses JSON; returns `{swarm, swarm_role, reachable}`
-- [ ] `LocalNodeState == "active"` → `swarm: True`
-- [ ] `ControlAvailable: true` → `swarm_role: "manager"`; swarm
+- [x] Parses JSON; returns `{swarm, swarm_role, reachable}`
+- [x] `LocalNodeState == "active"` → `swarm: True`
+- [x] `ControlAvailable: true` → `swarm_role: "manager"`; swarm
       active but not control-available → `"worker"`; inactive → `""`
-- [ ] Non-zero exit → `{swarm: False, swarm_role: "", reachable: False}`
-- [ ] JSON parse error → same fallback
-- [ ] Docstring mirrors `detect_caddy`
-- [ ] Unit tests cover: active-manager, active-worker, inactive,
+- [x] Non-zero exit → `{swarm: False, swarm_role: "", reachable: False}`
+- [x] JSON parse error → same fallback
+- [x] Docstring mirrors `detect_caddy`
+- [x] Unit tests cover: active-manager, active-worker, inactive,
       command-failed, bad-json
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 
