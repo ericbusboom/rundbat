@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: rundbat secrets plural command with list dry-run rotate
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on:

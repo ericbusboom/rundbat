@@ -1,11 +1,13 @@
 ---
-id: "005"
-title: "Manager field and skill doc refresh"
-status: todo
-use-cases: [SUC-005]
-depends-on: ['004']
-github-issue: ""
-todo: ""
+id: '005'
+title: Manager field and skill doc refresh
+status: in-progress
+use-cases:
+- SUC-005
+depends-on:
+- '004'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -70,21 +72,21 @@ close-time pyproject regression).
 
 ## Acceptance Criteria
 
-- [ ] `manager:` is an optional field on each deployment in
+- [x] `manager:` is an optional field on each deployment in
       `rundbat.yaml` (validated on load)
-- [ ] `manager_context_for(deployment_cfg)` returns
+- [x] `manager_context_for(deployment_cfg)` returns
       `manager` when set, else `docker_context`
-- [ ] All secret-related commands route through
+- [x] All secret-related commands route through
       `manager_context_for` (no remaining hardcoded
       `dep["docker_context"]` in secret code paths)
-- [ ] `docker-secrets-swarm.md` describes the declarative schema,
+- [x] `docker-secrets-swarm.md` describes the declarative schema,
       the plural command, `--from-file`, the `manager:` field, and
       rotation; no "hand-edit" residue remains
-- [ ] Adjacent docs / skill files updated where they reference the
+- [x] Adjacent docs / skill files updated where they reference the
       pre-sprint interface
-- [ ] New unit test verifies `manager_context_for` defaulting
-- [ ] Version bumped via `clasi version bump`
-- [ ] All tests pass; commit references T05
+- [x] New unit test verifies `manager_context_for` defaulting
+- [x] Version bumped via `clasi version bump`
+- [x] All tests pass; commit references T05
 
 ## Testing
 

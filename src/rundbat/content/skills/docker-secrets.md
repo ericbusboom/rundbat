@@ -66,12 +66,15 @@ name.
 ## What rundbat generates today (reality check)
 
 - `env_file: ["../.env"]` in every `docker-compose.<env>.yml`
-- No `secrets:` top-level block
-- No Swarm `external: true` secret references
-- No BuildKit `--mount=type=secret` in generated Dockerfiles
-
-Everything beyond the dev-grade env_file pattern is currently hand-added
-on top of rundbat-generated artifacts. The sibling skills show how.
+- For Swarm deployments with a `secrets:` block in `rundbat.yaml`:
+  per-service `secrets:` attachments, top-level `external: true`
+  references, and `*_FILE` env vars on each consuming service —
+  see `docker-secrets-swarm` for the declarative interface and the
+  `rundbat secrets` command.
+- No Compose-mode `secrets:` mounts on plain Docker hosts — see
+  `docker-secrets-compose` for that pattern.
+- No BuildKit `--mount=type=secret` in generated Dockerfiles — see
+  `docker-secrets-build` for build-time credentials.
 
 ## References
 
