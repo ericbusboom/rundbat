@@ -123,28 +123,92 @@ done
 
 ## Rundbat integration
 
-rundbat doesn't currently generate Swarm-secret stanzas. For a Swarm
-deployment:
+rundbat generates the Swarm secret stanzas for you when the deployment
+has `swarm: true` and secrets are declared. Source of truth stays in
+dotconfig (SOPS-encrypted); plaintext only appears on the manager
+during `docker secret create`.
 
-1. **Source of truth stays in dotconfig.** Values are encrypted at rest
-   with SOPS/age; only plaintext appears during the `docker secret create`
-   step.
-2. **Create secrets from dotconfig at deploy time.** Wrap your deploy in
-   a step that pipes each value through. Example:
-   ```bash
-   for key in POSTGRES_PASSWORD API_TOKEN SIGNING_KEY; do
-     value=$(dotconfig get -d prod "$key")
-     docker --context prod secret create "app_${key,,}_v$(date +%Y_%m_%d)" - <<<"$value"
-   done
-   ```
-3. **Hand-edit `docker/docker-compose.<env>.yml`** to add the `secrets:`
-   block and swap `env_file:` entries for `*_FILE` env vars. Treat this
-   as a production-only overlay that survives `rundbat generate`
-   re-runs, or maintain it in a separate compose file referenced by
-   `-f`.
+### 1. Declare secrets on the deployment
 
-A future rundbat enhancement could generate Swarm secret stanzas
-automatically when a deployment has `swarm: true`. Not there yet.
+In `rundbat.yaml`:
+
+```yaml
+deployments:
+  prod:
+    docker_context: prod-ctx
+    swarm: true
+    deploy_mode: stack
+    secrets:
+      - POSTGRES_PASSWORD
+      - SESSION_SECRET
+```
+
+### 2. Generate the compose file
+
+`rundbat generate` produces a Swarm-ready `docker/docker-compose.prod.yml`:
+
+```yaml
+# Deploy with: docker stack deploy -c docker/docker-compose.prod.yml myapp_prod
+services:
+  app:
+    # …
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      SESSION_SECRET_FILE: /run/secrets/session_secret
+    secrets:
+      - source: myapp_postgres_password
+        target: postgres_password
+      - source: myapp_session_secret
+        target: session_secret
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      update_config:
+        order: start-first
+
+secrets:
+  myapp_postgres_password:
+    external: true
+  myapp_session_secret:
+    external: true
+```
+
+The `source:` name is the external secret rundbat expects operators
+to create (step 3). The `target:` is the stable logical name the
+application reads — it does not change across rotations.
+
+### 3. Create the secrets from dotconfig
+
+Use `rundbat secret create`:
+
+```bash
+rundbat secret create prod POSTGRES_PASSWORD
+rundbat secret create prod SESSION_SECRET
+```
+
+Each call pipes the dotconfig value into
+`docker --context <ctx> secret create <app>_<key_lc>_v<YYYYMMDD> -`
+on stdin (never through argv). The date-stamped name makes the
+rotation trail obvious in `docker secret ls`.
+
+### 4. Point the stack at the current version
+
+The `external: true` reference in the generated compose names the
+**logical** secret (`myapp_postgres_password`). To attach an actual
+versioned secret (e.g. `myapp_postgres_password_v20260424`), create
+an alias or set the `name:` override at the top-level entry:
+
+```yaml
+secrets:
+  myapp_postgres_password:
+    external: true
+    name: myapp_postgres_password_v20260424
+```
+
+Bump the `name:` on each rotation and re-run `rundbat up prod` (which
+shells out to `docker stack deploy`). Old versions remain until you
+prune them.
 
 ## References
 

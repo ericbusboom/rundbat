@@ -13,6 +13,8 @@ Node.js and Python web applications.
 - Deploy to remote Docker hosts via Docker contexts
 - Manage secrets securely through dotconfig
 - Diagnose container and connectivity issues
+- Deploy to Docker Swarm stacks (probe, generate, lifecycle, secret
+  rotation) — see the `docker-swarm-deploy` skill
 
 ## rundbat CLI commands
 

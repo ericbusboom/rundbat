@@ -1,11 +1,16 @@
 ---
-id: "008"
-title: "Skills and agent doc updates (docker-swarm-deploy, revise docker-secrets-swarm)"
-status: todo
+id: 008
+title: Skills and agent doc updates (docker-swarm-deploy, revise docker-secrets-swarm)
+status: in-progress
 use-cases: []
-depends-on: ["003", "004", "005", "006", "007"]
-github-issue: ""
-todo: ""
+depends-on:
+- '003'
+- '004'
+- '005'
+- '006'
+- '007'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -79,23 +84,23 @@ Add one bullet to the agent's capability list noting Swarm support
 
 ## Acceptance Criteria
 
-- [ ] `docker-swarm-deploy.md` exists and covers the six sections
+- [x] `docker-swarm-deploy.md` exists and covers the six sections
       above
-- [ ] `docker-secrets-swarm.md` no longer contains the "rundbat
+- [x] `docker-secrets-swarm.md` no longer contains the "rundbat
       doesn't currently generate Swarm-secret stanzas" caveat
-- [ ] `docker-secrets-swarm.md` shows generated `secrets: external:
+- [x] `docker-secrets-swarm.md` shows generated `secrets: external:
       true` example
-- [ ] `docker-secrets-swarm.md` documents `rundbat secret create`
-- [ ] `deploy-init.md` has a Swarm-probe step
-- [ ] `deploy-setup.md` mentions stack mode and points to
+- [x] `docker-secrets-swarm.md` documents `rundbat secret create`
+- [x] `deploy-init.md` has a Swarm-probe step
+- [x] `deploy-setup.md` mentions stack mode and points to
       `docker-swarm-deploy.md`
-- [ ] `diagnose.md` has the Swarm troubleshooting quick-ref
-- [ ] `deployment-expert.md` has a Swarm-capability bullet
-- [ ] `rundbat --instructions | grep docker-swarm-deploy` finds the
+- [x] `diagnose.md` has the Swarm troubleshooting quick-ref
+- [x] `deployment-expert.md` has a Swarm-capability bullet
+- [x] `rundbat --instructions | grep docker-swarm-deploy` finds the
       new skill (auto-discovered via installer)
-- [ ] `uv run pytest` passes (no code changes — just make sure
+- [x] `uv run pytest` passes (no code changes — just make sure
       nothing broke)
-- [ ] `pyproject.toml` version bumped
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 
