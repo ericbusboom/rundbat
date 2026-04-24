@@ -1,5 +1,6 @@
 """Discovery Service — detect host system capabilities."""
 
+import json
 import platform
 import subprocess
 from pathlib import Path
@@ -163,6 +164,59 @@ def detect_caddy(context: str) -> dict:
     return {
         "running": running,
         "container": result["stdout"].strip() if running else None,
+    }
+
+
+def detect_swarm(context: str) -> dict:
+    """Detect whether Docker Swarm is active on a remote Docker host.
+
+    Runs ``docker --context <context> info --format '{{json .Swarm}}'``
+    and parses the JSON payload. Returns a structured dict describing
+    the Swarm state of the node the context points to.
+
+    Args:
+        context: Docker context name to probe.
+
+    Returns:
+        Dict with three keys:
+
+        - ``swarm`` (bool): True iff ``LocalNodeState == "active"``.
+        - ``swarm_role`` (str): ``"manager"`` when swarm is active and
+          ``ControlAvailable`` is True, ``"worker"`` when swarm is
+          active but not control-available, else ``""``.
+        - ``reachable`` (bool): False if the ``docker info`` command
+          failed to run or produced unparsable output; True otherwise.
+
+    On non-zero exit, JSON parse failure, or missing fields the
+    function returns ``{"swarm": False, "swarm_role": "",
+    "reachable": False}``. Callers (e.g. the probe command) decide how
+    to interpret ``reachable: False`` — this function only reports
+    facts.
+    """
+    cmd = ["docker", "--context", context, "info",
+           "--format", "{{json .Swarm}}"]
+    result = _run_command(cmd)
+    if not result["success"]:
+        return {"swarm": False, "swarm_role": "", "reachable": False}
+
+    try:
+        payload = json.loads(result["stdout"])
+    except (ValueError, TypeError):
+        return {"swarm": False, "swarm_role": "", "reachable": False}
+
+    if not isinstance(payload, dict):
+        return {"swarm": False, "swarm_role": "", "reachable": False}
+
+    state = payload.get("LocalNodeState", "")
+    active = state == "active"
+    if active:
+        role = "manager" if payload.get("ControlAvailable") else "worker"
+    else:
+        role = ""
+    return {
+        "swarm": active,
+        "swarm_role": role,
+        "reachable": True,
     }
 
 

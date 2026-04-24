@@ -240,10 +240,29 @@ def cmd_deploy(args):
                 print(f"  {result['url']}")
 
 
+def _prompt_yes_no(message: str, default_yes: bool = True) -> bool:
+    """Prompt for a yes/no answer, defaulting as specified.
+
+    Non-interactive stdin (no tty / EOFError) returns the default —
+    this keeps CI and scripted invocations usable.
+    """
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    try:
+        ans = input(f"{message} {suffix} ").strip().lower()
+    except EOFError:
+        return default_yes
+    if not ans:
+        return default_yes
+    return ans in ("y", "yes")
+
+
 def cmd_deploy_init(args):
     """Set up a new deployment target."""
-    from rundbat import deploy
+    from rundbat import deploy, config
     from rundbat.deploy import DeployError
+
+    deploy_mode = getattr(args, "deploy_mode", None)
+    swarm_opt_in = False
 
     try:
         result = deploy.init_deployment(
@@ -252,12 +271,50 @@ def cmd_deploy_init(args):
             hostname=args.hostname,
             build_strategy=args.strategy,
             ssh_key=args.ssh_key,
-            deploy_mode=getattr(args, "deploy_mode", None),
+            deploy_mode=deploy_mode,
             image=getattr(args, "image", None),
         )
     except DeployError as e:
         _error(str(e), args.json)
         return
+
+    # Swarm probe + opt-in prompt (T06).
+    from rundbat.discovery import detect_swarm
+    ctx = result.get("context")
+    swarm_probe = detect_swarm(ctx) if ctx else {
+        "swarm": False, "swarm_role": "", "reachable": False
+    }
+    if swarm_probe.get("reachable") and swarm_probe.get("swarm"):
+        role = swarm_probe.get("swarm_role") or "?"
+        if args.json:
+            # Non-interactive: auto-accept the opt-in when JSON
+            # output is requested. Keeps scripted flows useful.
+            swarm_opt_in = True
+        else:
+            print(f"Swarm detected on {args.host} (role: {role}).")
+            swarm_opt_in = _prompt_yes_no(
+                "Enable stack mode (swarm: true, deploy_mode: stack)?",
+                default_yes=True,
+            )
+    elif not swarm_probe.get("reachable") and ctx:
+        # Reachability failed — warn but proceed with defaults.
+        print("Warning: could not probe Swarm state on the remote "
+              f"context '{ctx}'. Continuing with defaults.",
+              file=sys.stderr)
+
+    if swarm_opt_in:
+        cfg = config.load_config()
+        deployments = cfg.get("deployments", {})
+        entry = deployments.get(args.name, {})
+        entry["swarm"] = True
+        if swarm_probe.get("swarm_role"):
+            entry["swarm_role"] = swarm_probe["swarm_role"]
+        entry["deploy_mode"] = "stack"
+        deployments[args.name] = entry
+        cfg["deployments"] = deployments
+        config.save_config(data=cfg)
+        result["swarm"] = True
+        result["deploy_mode"] = "stack"
 
     if args.json:
         _output(result, args.json)
@@ -274,13 +331,15 @@ def cmd_deploy_init(args):
             print(f"  Remote platform: {result['platform']} (local: {local_plat})")
             if result["platform"] != local_plat:
                 print(f"  Cross-architecture: yes — images will be built for {result['platform']}")
+        if result.get("swarm"):
+            print(f"  Swarm: enabled (deploy_mode: stack)")
         print(f"\nRun 'rundbat deploy {result['deployment']}' to deploy.")
 
 
 def cmd_probe(args):
-    """Probe a deployment target for reverse proxy detection."""
+    """Probe a deployment target for reverse proxy and Swarm detection."""
     from rundbat import config
-    from rundbat.discovery import detect_caddy
+    from rundbat.discovery import detect_caddy, detect_swarm
     from rundbat.config import ConfigError
 
     try:
@@ -304,13 +363,61 @@ def cmd_probe(args):
     caddy = detect_caddy(ctx)
     reverse_proxy = "caddy" if caddy["running"] else "none"
     dep["reverse_proxy"] = reverse_proxy
+
+    swarm_probe = detect_swarm(ctx)
+    _apply_swarm_probe_to_deployment(dep, swarm_probe)
+
     deployments[name] = dep
     cfg["deployments"] = deployments
     config.save_config(data=cfg)
 
-    result = {"deployment": name, "reverse_proxy": reverse_proxy,
-              "container": caddy.get("container")}
+    result = {
+        "deployment": name,
+        "reverse_proxy": reverse_proxy,
+        "container": caddy.get("container"),
+        "swarm": dep.get("swarm"),
+        "swarm_role": dep.get("swarm_role"),
+    }
     _output(result, args.json)
+
+
+def _apply_swarm_probe_to_deployment(dep: dict, probe: dict) -> None:
+    """Apply the swarm probe result to a deployment entry in-place.
+
+    Implements the transient-failure rule documented in the sprint 008
+    architecture update:
+
+    - Reachable + swarm active → write ``swarm: true`` and role.
+    - Reachable + swarm inactive → write ``swarm: false``; clear role.
+      This applies even when the prior value was ``true`` — the daemon
+      answered us, so the downgrade is authoritative.
+    - Unreachable AND prior is ``swarm: true`` → do nothing (transient
+      failure must not silently downgrade).
+    - Unreachable AND prior is absent / false / unknown → record
+      ``swarm: "unknown"`` and clear role.
+    """
+    prior = dep.get("swarm")
+    reachable = probe.get("reachable", False)
+    is_swarm = probe.get("swarm", False)
+    role = probe.get("swarm_role", "")
+
+    if reachable:
+        if is_swarm:
+            dep["swarm"] = True
+            if role:
+                dep["swarm_role"] = role
+            else:
+                dep.pop("swarm_role", None)
+        else:
+            dep["swarm"] = False
+            dep.pop("swarm_role", None)
+        return
+
+    # Unreachable: honour the transient-failure invariant.
+    if prior is True:
+        return  # keep the prior declared state; do NOT overwrite.
+    dep["swarm"] = "unknown"
+    dep.pop("swarm_role", None)
 
 
 def cmd_generate(args):
@@ -505,6 +612,30 @@ def cmd_build(args):
         sys.exit(result.returncode)
 
 
+def _effective_deploy_mode(deployment: dict) -> str:
+    """Return the deploy_mode to use, applying the swarm auto-upgrade rule.
+
+    If ``deployment`` has an explicit ``deploy_mode``, return it
+    unchanged. Otherwise, when ``swarm: true`` is recorded (by a
+    probe or by the user), upgrade the default to ``stack``.
+    """
+    explicit = deployment.get("deploy_mode")
+    if explicit:
+        return str(explicit)
+    if deployment.get("swarm") is True:
+        return "stack"
+    return "compose"
+
+
+def _stack_name_from(cfg: dict, deployment_name: str, dep_cfg: dict) -> str:
+    """Return the Swarm stack name, honouring an explicit ``stack_name``."""
+    explicit = dep_cfg.get("stack_name")
+    if explicit:
+        return str(explicit)
+    app_name = cfg.get("app_name", "app")
+    return f"{app_name}_{deployment_name}"
+
+
 def cmd_up(args):
     """Start a deployment."""
     verbose = getattr(args, "verbose", False)
@@ -514,7 +645,7 @@ def cmd_up(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     build_strategy = dep_cfg.get("build_strategy", "context")
     ctx = dep_cfg.get("docker_context", "default")
 
@@ -561,6 +692,21 @@ def cmd_up(args):
             _error(str(e), args.json)
         return
 
+    # Stack mode — Docker Swarm
+    if deploy_mode == "stack":
+        compose_file = _compose_file_for_deployment(args.name, dep_cfg)
+        if not compose_file.exists():
+            _error(f"{compose_file} not found. Run 'rundbat generate' first.",
+                   args.json)
+            return
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        cmd = ["docker", "--context", ctx, "stack", "deploy",
+               "-c", str(compose_file), stack]
+        result = _run_cmd(cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+        return
+
     # Compose mode
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
@@ -593,7 +739,7 @@ def cmd_down(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
 
@@ -605,6 +751,14 @@ def cmd_down(args):
         _run_cmd(["docker", "stop", app_name], env=env, verbose=verbose, capture_output=True)
         _run_cmd(["docker", "rm", app_name], env=env, verbose=verbose, capture_output=True)
         print(f"Stopped {app_name}")
+        return
+
+    if deploy_mode == "stack":
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        cmd = ["docker", "--context", ctx, "stack", "rm", stack]
+        result = _run_cmd(cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
         return
 
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
@@ -627,7 +781,7 @@ def cmd_logs(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
 
@@ -640,6 +794,29 @@ def cmd_logs(args):
         _run_cmd(cmd, env=env, verbose=verbose)
         return
 
+    if deploy_mode == "stack":
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        # Services to tail: the app service plus any infra services
+        # listed in the deployment entry. Default to ["app"] if none.
+        service_types = dep_cfg.get("services") or []
+        service_names = ["app"] + list(service_types)
+        # Launch one `service logs -f` per service. If the caller only
+        # wants the app we still default to that — multiplexing multiple
+        # tails requires tee'ing, which we do not do here. For T05 we
+        # tail the app service primarily; additional services are
+        # reported for diagnostics.
+        for svc in service_names:
+            cmd = ["docker", "--context", ctx, "service", "logs", "-f",
+                   f"{stack}_{svc}"]
+            result = _run_cmd(cmd, verbose=verbose)
+            # `service logs -f` blocks until interrupted. In practice
+            # the loop only runs once; for tests we inspect the first
+            # invocation. Break on success to avoid tailing N services
+            # in sequence after Ctrl-C.
+            if result.returncode == 0:
+                return
+        return
+
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
         _error(f"{compose_file} not found. Run 'rundbat generate' first.", args.json)
@@ -647,6 +824,106 @@ def cmd_logs(args):
 
     cmd = ["docker", "compose", "-f", str(compose_file), "logs", "-f"]
     _run_cmd(cmd, env=env, verbose=verbose)
+
+
+def _parse_env_text(text: str) -> dict:
+    """Parse KEY=VALUE lines from a .env-style text into a dict.
+
+    Ignores blank lines, comments, and malformed lines. Values keep
+    their raw form (no unquoting) — callers pipe them straight to
+    Docker.
+    """
+    result: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        result[key.strip()] = value
+    return result
+
+
+def cmd_secret_create(args):
+    """Create (or rotate) a Swarm secret from a dotconfig-backed value.
+
+    Usage: ``rundbat secret create <env> <KEY>``
+
+    Reads ``KEY`` from the deployment's dotconfig env bundle, computes
+    the versioned Swarm secret name (``<app>_<key_lc>_v<YYYYMMDD>``),
+    and pipes the value into ``docker --context <ctx> secret create
+    <name> -`` on stdin.
+    """
+    from datetime import datetime, timezone
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(str(e), args.json)
+        return
+
+    deployments = cfg.get("deployments", {})
+    env_name = args.env
+    if env_name not in deployments:
+        _error(f"Deployment '{env_name}' not found in rundbat.yaml", args.json)
+        return
+
+    dep = deployments[env_name]
+    ctx = dep.get("docker_context")
+    if not ctx:
+        _error(f"Deployment '{env_name}' has no docker_context", args.json)
+        return
+
+    key = args.key
+    try:
+        env_text = config.load_env(env_name)
+    except ConfigError as e:
+        _error(f"Failed to load dotconfig env for '{env_name}': {e}", args.json)
+        return
+
+    env_map = _parse_env_text(env_text)
+    if key not in env_map:
+        _error(f"Key '{key}' not found in dotconfig env for '{env_name}'", args.json)
+        return
+
+    value = env_map[key]
+
+    app_name = cfg.get("app_name", "app")
+    date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    secret_name = f"{app_name}_{key.lower()}_v{date_stamp}"
+
+    cmd = ["docker", "--context", ctx, "secret", "create", secret_name, "-"]
+    result = _run_cmd_stdin(cmd, stdin_value=value,
+                            verbose=getattr(args, "verbose", False))
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip() if hasattr(result, "stderr") else ""
+        _error(
+            f"docker secret create failed (exit {result.returncode}): {stderr}",
+            args.json,
+        )
+        return
+
+    _output({"secret_name": secret_name, "deployment": env_name,
+             "docker_context": ctx}, args.json)
+
+
+def _run_cmd_stdin(cmd: list[str], *, stdin_value: str, verbose: bool = False):
+    """Run a subprocess command, piping a string into stdin.
+
+    Returns a ``CompletedProcess`` with ``stdout``/``stderr`` captured.
+    """
+    import subprocess
+    if verbose:
+        print(f"  $ {' '.join(cmd)}  (stdin redacted)", file=sys.stderr)
+    return subprocess.run(
+        cmd,
+        input=stdin_value,
+        capture_output=True,
+        text=True,
+    )
 
 
 def cmd_restart(args):
@@ -658,7 +935,7 @@ def cmd_restart(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     build_strategy = dep_cfg.get("build_strategy", "context")
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
@@ -669,6 +946,29 @@ def cmd_restart(args):
 
     # Checkout config from dotconfig
     _checkout_config(args.name, dep_cfg, verbose=verbose)
+
+    if deploy_mode == "stack":
+        # Stack restart = rm + deploy. --build reuses docker compose
+        # build (build is not a stack op).
+        compose_file = _compose_file_for_deployment(args.name, dep_cfg)
+        if not compose_file.exists():
+            _error(f"{compose_file} not found. Run 'rundbat generate' first.",
+                   args.json)
+            return
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        if getattr(args, "build", False) and build_strategy != "github-actions":
+            build_cmd = ["docker", "compose", "-f", str(compose_file), "build"]
+            result = _run_cmd(build_cmd, env=env, verbose=verbose)
+            if result.returncode != 0:
+                sys.exit(result.returncode)
+        _run_cmd(["docker", "--context", ctx, "stack", "rm", stack],
+                 verbose=verbose, capture_output=True)
+        deploy_cmd = ["docker", "--context", ctx, "stack", "deploy",
+                      "-c", str(compose_file), stack]
+        result = _run_cmd(deploy_cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+        return
 
     if deploy_mode == "run":
         # Build not applicable for run mode
@@ -742,6 +1042,153 @@ def _add_json_flag(parser):
     )
 
 
+_AGENT_INSTRUCTIONS_HEAD = """\
+rundbat — Instructions for Agents
+=================================
+
+What rundbat is
+---------------
+rundbat is a CLI that manages Docker-based deployment environments for
+web applications. It is the authoritative tool for anything involving:
+
+  - Docker Compose lifecycle (build, up, down, restart, logs)
+  - Deployment to remote Docker hosts (via Docker contexts or SSH)
+  - Per-deployment environment/config, including SOPS-encrypted secrets
+  - Generating the project's docker/ directory (Dockerfile, compose files)
+  - Database provisioning and connection strings
+
+If a task mentions "deployment", "Docker", "compose", "env vars", "secrets",
+or "connection string", reach for rundbat first. Do not hand-edit
+docker-compose files or config/ files — regenerate or go through dotconfig.
+
+Core workflow
+-------------
+1. `rundbat init` once per project — creates config/rundbat.yaml, a .gitignore
+   rule for per-deployment env files, inserts a rundbat block into CLAUDE.md,
+   and installs reference docs into .claude/.
+2. `rundbat generate` — regenerates docker/ artifacts from rundbat.yaml.
+   Re-run any time you edit rundbat.yaml or add a deployment.
+3. `rundbat up <name>` / `down <name>` / `restart <name>` — local lifecycle.
+   `up` automatically checks out env from dotconfig into docker/.<name>.env.
+4. `rundbat deploy-init <name> --host ssh://...` — register a remote target.
+5. `rundbat deploy <name>` — deploy to the remote (context / ssh-transfer /
+   github-actions strategy, configured per deployment).
+
+Deployment names (dev, test, prod, or custom) are the primary argument to
+almost every subcommand. They must exist under `deployments:` in rundbat.yaml.
+
+Configuration model
+-------------------
+All config goes through dotconfig — never edit config/ files by hand.
+
+  config/
+    rundbat.yaml         # App name, container templates, deployments map
+    <env>/public.env     # Non-secret env vars
+    <env>/secrets.env    # SOPS-encrypted secrets
+
+Read merged config:  dotconfig load -d <env> --json --flat -S
+Write secrets:       dotconfig set -d <env> KEY=VALUE
+rundbat `up` and `restart` check out the merged env into
+docker/.<name>.env automatically (see `env_source: dotconfig`).
+
+Build strategies (set per-deployment in rundbat.yaml):
+  context         — build on the remote Docker context (default)
+  ssh-transfer    — build locally with --platform, rsync images over SSH
+  github-actions  — CI builds to GHCR, remote pulls
+"""
+
+
+_AGENT_INSTRUCTIONS_TAIL = """\
+Rules for agents
+----------------
+  - Do not edit config/ files directly. Use dotconfig.
+  - Do not hand-edit docker/docker-compose.*.yml. Edit rundbat.yaml and
+    re-run `rundbat generate`.
+  - Do not echo secret values in output or commit them.
+  - Most commands accept `--json` for parseable output.
+  - Pass `-v` / `--verbose` to see the shell commands rundbat runs.
+
+Subcommand reference (compiled from each `rundbat <cmd> --help`)
+----------------------------------------------------------------
+"""
+
+
+_SKILL_DESCRIPTIONS = {
+    "astro-docker.md": "Dockerizing Astro projects",
+    "deploy-init.md": "walk through setting up a remote target",
+    "deploy-setup.md": "guided remote deploy configuration",
+    "dev-database.md": "provisioning a local dev DB",
+    "diagnose.md": "triaging broken containers / deploys",
+    "docker-best-practices.md": "Docker Build Best Practices checklist and what rundbat enforces",
+    "docker-secrets.md": "decision framework for Docker secrets (Swarm vs plain vs build)",
+    "docker-secrets-swarm.md": "Swarm runtime secrets — create, attach, rotate, version",
+    "docker-secrets-compose.md": "plain-Docker file-mounted secrets and migration from env_file",
+    "docker-secrets-build.md": "BuildKit `--secret` for build-time credentials",
+    "generate.md": "regenerating docker/ artifacts",
+    "github-deploy.md": "github-actions build strategy",
+    "init-docker.md": "initial docker/ scaffolding",
+    "manage-secrets.md": "adding, rotating, reading secrets (dotconfig — source of truth)",
+}
+
+
+def _installed_integration_section() -> str:
+    """Build the 'Installed Claude integration' section from the install map.
+
+    Paths are pulled from installer.installed_paths_by_kind() so they always
+    match what `rundbat init` actually writes to disk.
+    """
+    from rundbat.installer import installed_paths_by_kind
+
+    groups = installed_paths_by_kind()
+    lines = [
+        "Installed Claude integration",
+        "----------------------------",
+        "`rundbat init` installs reference docs into the project's .claude/",
+        "directory and inserts a rundbat block into CLAUDE.md. The files below",
+        "are on disk right now — read them for deeper, task-specific guidance.",
+        "",
+    ]
+
+    if groups["rules"]:
+        lines.append("Rules:")
+        for p in groups["rules"]:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    if groups["agents"]:
+        lines.append("Agents:")
+        for p in groups["agents"]:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    if groups["skills"]:
+        lines.append("Skills (task-specific runbooks):")
+        for p in groups["skills"]:
+            name = p.rsplit("/", 1)[-1]
+            desc = _SKILL_DESCRIPTIONS.get(name)
+            if desc:
+                lines.append(f"  {p} — {desc}")
+            else:
+                lines.append(f"  {p}")
+        lines.append("")
+
+    lines.append("When in doubt about a specific task, read the matching skill file first.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _print_instructions(subparsers_action) -> None:
+    """Print detailed agent instructions, then every subcommand's help."""
+    print(_AGENT_INSTRUCTIONS_HEAD)
+    print(_installed_integration_section())
+    print(_AGENT_INSTRUCTIONS_TAIL)
+    for name in sorted(subparsers_action.choices.keys()):
+        subparser = subparsers_action.choices[name]
+        print(f"----- rundbat {name} -----")
+        print()
+        print(subparser.format_help())
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -757,7 +1204,10 @@ Commands:
   rundbat restart <name>     Restart (down + up; --build to rebuild first)
   rundbat logs <name>        Tail logs from a deployment
   rundbat deploy <name>      Deploy to a remote host
-  rundbat deploy-init <name> Set up a deployment target""",
+  rundbat deploy-init <name> Set up a deployment target
+
+Attention agents: For agents, run `rundbat --instructions` to get detailed
+instructions on using this tool.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -766,6 +1216,10 @@ Commands:
     parser.add_argument(
         "-v", "--verbose", action="store_true", default=False,
         help="Print shell commands before executing them",
+    )
+    parser.add_argument(
+        "--instructions", action="store_true", default=False,
+        help="Print detailed instructions for agents (includes all subcommand help)",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -917,8 +1371,8 @@ Commands:
     )
     deploy_init_parser.add_argument(
         "--deploy-mode", default=None,
-        choices=["compose", "run"],
-        help="Deploy mode: compose (default) or run (single container)",
+        choices=["compose", "run", "stack"],
+        help="Deploy mode: compose (default), run (single container), or stack (Swarm)",
     )
     deploy_init_parser.add_argument(
         "--image", default=None,
@@ -941,7 +1395,34 @@ Commands:
     _add_json_flag(probe_parser)
     probe_parser.set_defaults(func=cmd_probe)
 
+    # rundbat secret <subcommand>
+    secret_parser = subparsers.add_parser(
+        "secret", help="Manage Docker Swarm secrets from dotconfig values",
+    )
+    secret_sub = secret_parser.add_subparsers(dest="secret_command")
+    secret_create_parser = secret_sub.add_parser(
+        "create",
+        help="Create a versioned Swarm secret from a dotconfig value",
+    )
+    secret_create_parser.add_argument(
+        "env", help="Deployment name (from rundbat.yaml)",
+    )
+    secret_create_parser.add_argument(
+        "key", help="Secret key name as stored in dotconfig (e.g., POSTGRES_PASSWORD)",
+    )
+    _add_json_flag(secret_create_parser)
+    secret_create_parser.set_defaults(func=cmd_secret_create)
+
+    def _secret_default(args):
+        secret_parser.print_help()
+        sys.exit(0)
+    secret_parser.set_defaults(func=_secret_default)
+
     args = parser.parse_args()
+
+    if getattr(args, "instructions", False):
+        _print_instructions(subparsers)
+        sys.exit(0)
 
     if not args.command:
         parser.print_help()

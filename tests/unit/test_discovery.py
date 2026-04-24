@@ -260,6 +260,99 @@ def test_detect_gh_not_installed(monkeypatch):
     assert result["authenticated"] is False
 
 
+# ---------------------------------------------------------------------------
+# detect_swarm
+# ---------------------------------------------------------------------------
+
+def test_detect_swarm_active_manager(monkeypatch):
+    """Active manager node reports swarm=True, swarm_role=manager."""
+    from rundbat.discovery import detect_swarm
+    payload = (
+        '{"LocalNodeState":"active","ControlAvailable":true,'
+        '"NodeID":"abc","Managers":1,"Nodes":1}'
+    )
+
+    def mock_run(cmd, timeout=10):
+        assert "--context" in cmd
+        return {"success": True, "stdout": payload, "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_swarm("my-ctx")
+    assert result == {"swarm": True, "swarm_role": "manager", "reachable": True}
+
+
+def test_detect_swarm_active_worker(monkeypatch):
+    """Active worker node reports swarm=True, swarm_role=worker."""
+    from rundbat.discovery import detect_swarm
+    payload = '{"LocalNodeState":"active","ControlAvailable":false}'
+
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": payload, "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_swarm("my-ctx")
+    assert result == {"swarm": True, "swarm_role": "worker", "reachable": True}
+
+
+def test_detect_swarm_inactive(monkeypatch):
+    """Inactive daemon reports swarm=False, swarm_role='', reachable=True."""
+    from rundbat.discovery import detect_swarm
+    payload = '{"LocalNodeState":"inactive","ControlAvailable":false}'
+
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": payload, "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_swarm("my-ctx")
+    assert result == {"swarm": False, "swarm_role": "", "reachable": True}
+
+
+def test_detect_swarm_command_failed(monkeypatch):
+    """Failed subprocess marks probe unreachable."""
+    from rundbat.discovery import detect_swarm
+
+    def mock_run(cmd, timeout=10):
+        return {
+            "success": False,
+            "stdout": "",
+            "stderr": "error during connect",
+            "returncode": 1,
+        }
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_swarm("my-ctx")
+    assert result == {"swarm": False, "swarm_role": "", "reachable": False}
+
+
+def test_detect_swarm_bad_json(monkeypatch):
+    """Unparsable JSON output marks probe unreachable."""
+    from rundbat.discovery import detect_swarm
+
+    def mock_run(cmd, timeout=10):
+        return {"success": True, "stdout": "not-json-at-all", "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    result = detect_swarm("my-ctx")
+    assert result == {"swarm": False, "swarm_role": "", "reachable": False}
+
+
+def test_detect_swarm_passes_context(monkeypatch):
+    """detect_swarm includes --context <ctx> in the docker command."""
+    from rundbat.discovery import detect_swarm
+    captured = []
+
+    def mock_run(cmd, timeout=10):
+        captured.extend(cmd)
+        return {"success": True, "stdout": '{"LocalNodeState":"inactive"}',
+                "stderr": "", "returncode": 0}
+
+    monkeypatch.setattr("rundbat.discovery._run_command", mock_run)
+    detect_swarm("my-remote-ctx")
+    assert "--context" in captured
+    assert "my-remote-ctx" in captured
+    assert "info" in captured
+
+
 def test_detect_caddy_passes_context(monkeypatch):
     """detect_caddy includes --context in the docker command."""
     from rundbat.discovery import detect_caddy

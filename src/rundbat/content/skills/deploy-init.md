@@ -121,6 +121,27 @@ AskUserQuestion:
     - label: "GitHub Actions → GHCR"
       description: "GitHub builds the image and pushes to GHCR. The remote pulls it."
 
+### Step 6b: Swarm probe (remote targets only)
+
+After `rundbat deploy-init <name> --host <url>` runs (in the CLI) it
+automatically probes the remote context for Docker Swarm. If Swarm
+is active, the user is asked:
+
+> `Swarm detected on <host> (role: manager|worker).`
+> `Enable stack mode (swarm: true, deploy_mode: stack)? [Y/n]`
+
+- **Accept**: the CLI writes `swarm: true` and `deploy_mode: stack`
+  into the new deployment entry; `rundbat up/down/restart/logs` will
+  shell out to `docker stack deploy` / `docker stack rm` /
+  `docker service logs`.
+- **Decline**: no swarm fields are written; the deployment stays in
+  compose mode. The user can opt in later with `rundbat probe <name>`
+  + editing `deploy_mode` by hand.
+- **Not detected**: no prompt appears; proceed with defaults.
+- **Probe unreachable**: a warning is printed and defaults are used.
+
+See the `docker-swarm-deploy` skill for when to prefer Swarm.
+
 ### Step 7: Environment Configuration
 
 AskUserQuestion:

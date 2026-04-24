@@ -143,6 +143,21 @@ This prints the full command pipeline without executing.
 rundbat deploy prod
 ```
 
+## Choosing stack mode (Docker Swarm)
+
+If the remote host runs Docker Swarm (`docker swarm init` has been
+run on it), consider `deploy_mode: stack` instead of `compose`:
+
+- Secrets move into `docker secret` (managed, not `.env`).
+- Rolling updates with health-check gating (`update_config.order:
+  start-first`).
+- The same lifecycle commands (`rundbat up/down/restart/logs`)
+  work — they dispatch to `docker stack deploy` / `docker stack rm` /
+  `docker service logs` when `deploy_mode: stack`.
+
+`rundbat deploy-init` probes the remote for Swarm and offers the
+opt-in automatically. Full details in the `docker-swarm-deploy` skill.
+
 ## Troubleshooting
 
 | Problem | Fix |

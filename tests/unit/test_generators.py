@@ -125,13 +125,54 @@ class TestGenerateDockerfile:
         assert "TODO" in df
 
     def test_astro(self):
-        """Astro Dockerfile has 3 stages ending in nginx:alpine on port 8080."""
+        """Astro Dockerfile has 3 stages ending in nginx-unprivileged on port 8080."""
         fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
         result = generate_dockerfile(fw)
-        assert "nginx:alpine" in result
+        assert "nginx-unprivileged:alpine" in result
         assert "EXPOSE 8080" in result
         assert "COPY --from=build /app/dist" in result
         assert "node:20-alpine" in result
+
+    # --- Best-practices assertions (Docker Build Best Practices guide) ---
+
+    def test_node_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "express"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "--mount=type=cache,target=/root/.npm" in df
+        assert "USER node" in df
+        assert "HEALTHCHECK" in df
+        assert "COPY --chown=node:node --from=builder" in df
+
+    def test_next_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "next"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "USER node" in df
+        assert "COPY --chown=node:node --from=builder /app/.next" in df
+        assert "HEALTHCHECK" in df
+
+    def test_python_multi_stage(self):
+        df = generate_dockerfile({"language": "python", "framework": "flask"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "FROM python:3.12-slim AS builder" in df
+        assert "/opt/venv" in df
+        assert "--mount=type=cache,target=/root/.cache/pip" in df
+        assert "USER appuser" in df
+        assert "HEALTHCHECK" in df
+        assert "COPY --chown=appuser" in df
+
+    def test_django_extra_step_runs_before_user_switch(self):
+        """collectstatic must run as root (before USER appuser)."""
+        df = generate_dockerfile({"language": "python", "framework": "django"})
+        collectstatic_idx = df.find("collectstatic")
+        user_idx = df.find("USER appuser")
+        assert collectstatic_idx != -1 and user_idx != -1
+        assert collectstatic_idx < user_idx
+
+    def test_astro_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "astro"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "--mount=type=cache,target=/root/.npm" in df
+        assert "HEALTHCHECK" in df
 
 
 # ---------------------------------------------------------------------------
@@ -677,3 +718,189 @@ class TestAddService:
         assert result["status"] == "added"
         compose = yaml.safe_load((tmp_path / "docker" / "docker-compose.yml").read_text())
         assert "redis" in compose["services"]
+
+
+# ---------------------------------------------------------------------------
+# Swarm plumbing in generate_compose_for_deployment (T03)
+# ---------------------------------------------------------------------------
+
+_FRAMEWORK_EXPRESS = {"language": "node", "framework": "express",
+                      "entry_point": "npm start"}
+
+
+def _swarm_deploy_cfg(**overrides):
+    cfg = {
+        "docker_context": "prod-host",
+        "build_strategy": "context",
+        "swarm": True,
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+class TestGenerateComposeSwarm:
+    def test_swarm_emits_header(self):
+        """Swarm output is prefixed with a 'docker stack deploy' header."""
+        cfg = _swarm_deploy_cfg()
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg, all_services=None
+        )
+        first_line = out.splitlines()[0]
+        assert first_line.startswith("# Deploy with: docker stack deploy")
+        assert "docker/docker-compose.prod.yml" in first_line
+        assert "myapp_prod" in first_line  # default stack name
+
+    def test_swarm_header_uses_stack_name_override(self):
+        cfg = _swarm_deploy_cfg(stack_name="custom_stack")
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        assert out.splitlines()[0].endswith("custom_stack")
+
+    def test_swarm_caddy_labels_under_deploy(self):
+        """When swarm=True, Caddy labels live under services.app.deploy.labels."""
+        cfg = _swarm_deploy_cfg(hostname="app.example.com", reverse_proxy="caddy")
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        # Strip the header line before parsing
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert "labels" not in app
+        assert "deploy" in app
+        assert app["deploy"]["labels"]["caddy"] == "app.example.com"
+
+    def test_swarm_deploy_block_per_service(self):
+        """Every service gets a deploy: block with the standard fields."""
+        cfg = _swarm_deploy_cfg()
+        all_services = [{"type": "postgres", "version": "16"}]
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg, all_services=all_services
+        )
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        for svc_name in ("app", "postgres"):
+            deploy = data["services"][svc_name]["deploy"]
+            assert deploy["replicas"] == 1
+            assert deploy["restart_policy"]["condition"] == "on-failure"
+            assert deploy["update_config"]["order"] == "start-first"
+
+    def test_swarm_false_unchanged_regression(self):
+        """Compose-mode output (swarm absent) still emits top-level labels."""
+        cfg = {
+            "docker_context": "prod-host",
+            "build_strategy": "context",
+            "hostname": "app.example.com",
+            "reverse_proxy": "caddy",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        # No header
+        assert not out.splitlines()[0].startswith("# Deploy with:")
+        data = yaml.safe_load(out)
+        app = data["services"]["app"]
+        assert app["labels"]["caddy"] == "app.example.com"
+        assert "deploy" not in app
+
+
+class TestGenerateComposeSwarmSecrets:
+    """T04 — Swarm-native secret stanza emission."""
+
+    def test_swarm_emits_top_level_secrets_stanza(self):
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD", "SESSION_SECRET"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        assert "secrets" in data
+        assert data["secrets"]["myapp_postgres_password"] == {"external": True}
+        assert data["secrets"]["myapp_session_secret"] == {"external": True}
+
+    def test_swarm_service_secrets_attachment(self):
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        app = data["services"]["app"]
+        assert app["secrets"] == [
+            {"source": "myapp_postgres_password", "target": "postgres_password"},
+        ]
+
+    def test_swarm_file_env_var_set(self):
+        """_FILE env var points at /run/secrets/<target>."""
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        env = data["services"]["app"]["environment"]
+        assert env["POSTGRES_PASSWORD_FILE"] == "/run/secrets/postgres_password"
+
+    def test_swarm_no_secrets_emits_no_stanza(self):
+        cfg = _swarm_deploy_cfg()
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        assert "secrets" not in data
+        assert "secrets" not in data["services"]["app"]
+
+    def test_non_swarm_with_secrets_emits_no_swarm_stanza(self):
+        """Regression: compose-mode deployments never emit swarm secret stanzas."""
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "context",
+            "secrets": ["POSTGRES_PASSWORD"],
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load(out)
+        assert "secrets" not in data
+        assert "secrets" not in data["services"]["app"]
+
+
+class TestGenerateJustfileStackMode:
+    def test_stack_mode_recipes(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "stack",
+                "swarm": True,
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "docker stack deploy -c docker/docker-compose.prod.yml myapp_prod" in out
+        assert "docker stack rm myapp_prod" in out
+        assert "docker service logs -f myapp_prod_app" in out
+        # build is NOT stack — still uses docker compose
+        assert "docker compose -f docker/docker-compose.prod.yml build" in out
+
+    def test_stack_mode_uses_stack_name_override(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "stack",
+                "stack_name": "custom_stack",
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "custom_stack" in out
+        assert "myapp_prod" not in out.replace("myapp_prod_build", "")  # no default name
+
+    def test_compose_mode_unchanged_regression(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "compose",
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "docker stack deploy" not in out
+        assert "docker compose -f docker/docker-compose.prod.yml up -d" in out
