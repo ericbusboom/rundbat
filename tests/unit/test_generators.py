@@ -761,10 +761,14 @@ _FRAMEWORK_EXPRESS = {"language": "node", "framework": "express",
 
 
 def _swarm_deploy_cfg(**overrides):
+    # Swarm deployments require an explicit `image:` — the generator
+    # raises GenerateError otherwise. Default to a sensible tag so
+    # existing suite tests stay focused on their own behavior.
     cfg = {
         "docker_context": "prod-host",
         "build_strategy": "context",
         "swarm": True,
+        "image": "myapp:prod",
     }
     cfg.update(overrides)
     return cfg
@@ -936,3 +940,195 @@ class TestGenerateJustfileStackMode:
         out = generate_justfile("myapp", services=None, deployments=deployments)
         assert "docker stack deploy" not in out
         assert "docker compose -f docker/docker-compose.prod.yml up -d" in out
+
+
+class TestGenerateComposeSwarmImage:
+    """Sprint 009 — image requirement for swarm deployments.
+
+    Stack deploys need an image: reference. The generator must emit
+    image: + build: for build-on-host strategies, keep the
+    github-actions path unchanged, and refuse to produce a partial
+    compose for swarm configs that omit image:.
+    """
+
+    import pytest
+
+    def test_context_swarm_with_image(self):
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "context",
+            "swarm": True,
+            "image": "myapp:prod",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        body = "\n".join(out.splitlines()[1:])  # strip swarm header
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert app["image"] == "myapp:prod"
+        assert app["build"]["context"] == ".."
+        assert app["build"]["dockerfile"] == "docker/Dockerfile"
+
+    def test_ssh_transfer_swarm_with_image(self):
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "ssh-transfer",
+            "swarm": True,
+            "image": "myapp:prod",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert app["image"] == "myapp:prod"
+        assert "build" in app
+
+    def test_github_actions_swarm_with_image_regression(self):
+        """github-actions + swarm path unchanged — image only, no build."""
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "github-actions",
+            "swarm": True,
+            "image": "ghcr.io/owner/myapp",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert app["image"] == "ghcr.io/owner/myapp:latest"
+        assert "build" not in app
+
+    def test_context_swarm_missing_image_errors(self):
+        import pytest
+        from rundbat.generators import GenerateError
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "context",
+            "swarm": True,
+        }
+        with pytest.raises(GenerateError) as exc:
+            generate_compose_for_deployment(
+                "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+            )
+        msg = str(exc.value)
+        assert "prod" in msg
+        assert "image:" in msg
+        assert "myapp:prod" in msg
+
+    def test_ssh_transfer_swarm_missing_image_errors(self):
+        import pytest
+        from rundbat.generators import GenerateError
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "ssh-transfer",
+            "swarm": True,
+        }
+        with pytest.raises(GenerateError):
+            generate_compose_for_deployment(
+                "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+            )
+
+    def test_github_actions_swarm_missing_image_uses_default(self):
+        """GA path is exempt — it has an implicit ghcr.io default."""
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "github-actions",
+            "swarm": True,
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        assert data["services"]["app"]["image"] == "ghcr.io/owner/myapp:latest"
+
+    def test_non_swarm_context_no_image_unchanged(self):
+        """Regression: compose-mode without image still emits build only."""
+        cfg = {
+            "docker_context": "dev",
+            "build_strategy": "context",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "dev", cfg
+        )
+        data = yaml.safe_load(out)
+        app = data["services"]["app"]
+        assert "build" in app
+        assert "image" not in app
+
+    def test_non_swarm_context_with_image_emits_both(self):
+        """Explicit image in compose-mode: both image and build."""
+        cfg = {
+            "docker_context": "dev",
+            "build_strategy": "context",
+            "image": "myapp:dev",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "dev", cfg
+        )
+        data = yaml.safe_load(out)
+        app = data["services"]["app"]
+        assert app["image"] == "myapp:dev"
+        assert "build" in app
+
+
+class TestGenerateArtifactsSwarmImageError:
+    """generate_artifacts returns {'error': ...} on swarm-missing-image."""
+
+    def test_missing_image_returns_error_and_writes_no_compose(self, tmp_path):
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "my-app",
+            "deployments": {
+                "prod": {
+                    "docker_context": "swarm-mgr",
+                    "build_strategy": "context",
+                    "deploy_mode": "stack",
+                    "swarm": True,
+                    # no image!
+                },
+            },
+        }
+        result = generate_artifacts(tmp_path, cfg)
+        assert "error" in result
+        assert "prod" in result["error"]
+        assert "image:" in result["error"]
+        # No compose file written for the invalid deployment
+        assert not (tmp_path / "docker" / "docker-compose.prod.yml").exists()
+
+
+class TestGenerateArtifactsStackModeImage:
+    def test_stack_mode_emits_image_field(self, tmp_path):
+        """Stack-mode context-strategy compose has image: + build:."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "my-app",
+            "deployments": {
+                "prod": {
+                    "docker_context": "swarm-mgr",
+                    "build_strategy": "context",
+                    "deploy_mode": "stack",
+                    "swarm": True,
+                    "image": "my-app:prod",
+                },
+            },
+        }
+        generate_artifacts(tmp_path, cfg)
+        compose = tmp_path / "docker" / "docker-compose.prod.yml"
+        assert compose.exists()
+        content = compose.read_text()
+        # strip the stack-deploy header
+        body = "\n".join(content.splitlines()[1:])
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert app["image"] == "my-app:prod"
+        assert "build" in app

@@ -8,6 +8,14 @@ from typing import Any
 import yaml
 
 
+class GenerateError(Exception):
+    """Raised when config cannot be turned into a valid Docker artifact.
+
+    Typical cause: the deployment declares ``swarm: true`` but omits
+    ``image:``, leaving Swarm with nothing to pull.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Framework detection
 # ---------------------------------------------------------------------------
@@ -431,11 +439,37 @@ def generate_compose_for_deployment(
     }
 
     # Build vs image
-    if build_strategy == "github-actions" and image:
-        app_svc["image"] = f"{image}:latest"
-    elif build_strategy == "github-actions":
-        app_svc["image"] = f"ghcr.io/owner/{app_name}:latest"
+    #
+    # Stack deploys (Swarm) ignore `build:` — they pull by `image:` tag.
+    # Compose deploys are happy to build+run in one step. To keep both
+    # paths working we emit:
+    #
+    #   - github-actions:        image only (unchanged)
+    #   - context / ssh-transfer with explicit image: image + build
+    #   - context / ssh-transfer without image, not swarm:  build only
+    #   - swarm: true without image:                         ERROR
+    #
+    # Swarm without an image is a hard error because Swarm can't build
+    # and will otherwise fail at deploy time with the opaque message
+    # "invalid image reference for service app: no image specified".
+    if swarm and not image and build_strategy != "github-actions":
+        raise GenerateError(
+            f"deployment '{deployment_name}' has swarm: true but no "
+            f"'image:' configured.\n"
+            f"Swarm cannot build images. Set "
+            f"deployments.{deployment_name}.image in rundbat.yaml "
+            f"(e.g. image: {app_name}:{deployment_name}) or switch "
+            f"build_strategy to github-actions."
+        )
+
+    if build_strategy == "github-actions":
+        if image:
+            app_svc["image"] = f"{image}:latest"
+        else:
+            app_svc["image"] = f"ghcr.io/owner/{app_name}:latest"
     else:
+        if image:
+            app_svc["image"] = image
         app_svc["build"] = {"context": "..", "dockerfile": "docker/Dockerfile"}
 
     # Caddy labels — placement depends on swarm mode
@@ -1114,9 +1148,15 @@ def generate_artifacts(
             has_github_actions = True
 
         if deploy_mode in ("compose", "stack"):
-            compose_content = generate_compose_for_deployment(
-                app_name, framework, dep_name, dep_cfg, all_services,
-            )
+            try:
+                compose_content = generate_compose_for_deployment(
+                    app_name, framework, dep_name, dep_cfg, all_services,
+                )
+            except GenerateError as e:
+                # Swarm-without-image and similar config errors.
+                # Return early with a helpful message; don't write a
+                # partial compose file for the invalid deployment.
+                return {"error": str(e)}
             # Use compose_file from config if set, otherwise derive from name
             compose_rel = dep_cfg.get("compose_file", f"docker/docker-compose.{dep_name}.yml")
             compose_path = project_dir / compose_rel

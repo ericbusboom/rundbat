@@ -1,13 +1,13 @@
 ---
-id: "001"
-title: "Generator image/build emission and swarm validation"
-status: todo
+id: '001'
+title: Generator image/build emission and swarm validation
+status: in-progress
 use-cases:
-  - SUC-001
-  - SUC-002
+- SUC-001
+- SUC-002
 depends-on: []
-github-issue: ""
-todo: "swarm-image-reference-for-non-ga-strategies.md"
+github-issue: ''
+todo: swarm-image-reference-for-non-ga-strategies.md
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
