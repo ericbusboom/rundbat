@@ -914,12 +914,11 @@ def cmd_secret_create(args):
 
     key = args.key
     try:
-        env_text = config.load_env(env_name)
+        env_map = config.load_env_dict(env_name)
     except ConfigError as e:
         _error(f"Failed to load dotconfig env for '{env_name}': {e}", args.json)
         return
 
-    env_map = _parse_env_text(env_text)
     if key not in env_map:
         _error(f"Key '{key}' not found in dotconfig env for '{env_name}'", args.json)
         return

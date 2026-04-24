@@ -133,6 +133,38 @@ def load_env(env: str) -> str:
     return _run_dotconfig(["load", "-d", env, "--stdout"])
 
 
+def load_env_dict(env: str) -> dict:
+    """Load a deployment's merged env as a clean ``{KEY: value}`` dict.
+
+    Calls ``dotconfig load -d <env> --no-export --json --flat -S`` and
+    parses the JSON output. The dotconfig JSON path strips ``export``
+    prefixes, unquotes values, and removes inline comments before
+    serialization, so the returned values are byte-for-byte plaintext
+    suitable for piping to ``docker secret create``.
+
+    Use this in preference to ``load_env`` + text parsing for any new
+    code path that needs structured access to the env bundle.
+    """
+    out = _run_dotconfig(
+        ["load", "-d", env, "--no-export", "--json", "--flat", "-S"]
+    )
+    try:
+        result = json.loads(out)
+    except json.JSONDecodeError as e:
+        raise ConfigError(
+            f"dotconfig --json output was not valid JSON for '{env}': {e}",
+            command=["dotconfig", "load", "-d", env, "--no-export",
+                     "--json", "--flat", "-S"],
+            exit_code=0,
+            stderr=out,
+        )
+    if not isinstance(result, dict):
+        raise ConfigError(
+            f"dotconfig --json output was not a JSON object for '{env}'",
+        )
+    return result
+
+
 def save_secret(env: str, key: str, value: str) -> None:
     """Add or update a secret in a deployment's .env via dotconfig round-trip."""
     # Step 1: Load the assembled .env to a file

@@ -1,5 +1,8 @@
 ---
-status: pending
+status: in-progress
+sprint: '010'
+tickets:
+- 010-002
 ---
 
 # Feature request for `rundbat`: native swarm-secret management

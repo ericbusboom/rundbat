@@ -730,8 +730,10 @@ def test_secret_create_pipes_value_into_docker_stdin(monkeypatch):
         }
 
     monkeypatch.setattr("rundbat.config.load_config", fake_load_config)
-    monkeypatch.setattr("rundbat.config.load_env",
-                        lambda env: "POSTGRES_PASSWORD=s3cret\nOTHER=x\n")
+    monkeypatch.setattr(
+        "rundbat.config.load_env_dict",
+        lambda env: {"POSTGRES_PASSWORD": "s3cret", "OTHER": "x"},
+    )
 
     def fake_run(cmd, *, input, capture_output, text):
         captured["cmd"] = cmd
@@ -766,8 +768,8 @@ def test_secret_create_uses_versioned_name(monkeypatch):
     monkeypatch.setattr("rundbat.config.load_config",
                         lambda: {"app_name": "myapp",
                                  "deployments": {"prod": {"docker_context": "ctx"}}})
-    monkeypatch.setattr("rundbat.config.load_env",
-                        lambda env: "POSTGRES_PASSWORD=v\n")
+    monkeypatch.setattr("rundbat.config.load_env_dict",
+                        lambda env: {"POSTGRES_PASSWORD": "v"})
 
     captured = {}
 
@@ -797,7 +799,8 @@ def test_secret_create_missing_key_errors_before_docker(monkeypatch):
     monkeypatch.setattr("rundbat.config.load_config",
                         lambda: {"app_name": "myapp",
                                  "deployments": {"prod": {"docker_context": "ctx"}}})
-    monkeypatch.setattr("rundbat.config.load_env", lambda env: "OTHER=x\n")
+    monkeypatch.setattr("rundbat.config.load_env_dict",
+                        lambda env: {"OTHER": "x"})
 
     docker_called = []
 
@@ -819,8 +822,8 @@ def test_secret_create_docker_failure_surfaced(monkeypatch, capsys):
     monkeypatch.setattr("rundbat.config.load_config",
                         lambda: {"app_name": "myapp",
                                  "deployments": {"prod": {"docker_context": "ctx"}}})
-    monkeypatch.setattr("rundbat.config.load_env",
-                        lambda env: "POSTGRES_PASSWORD=x\n")
+    monkeypatch.setattr("rundbat.config.load_env_dict",
+                        lambda env: {"POSTGRES_PASSWORD": "x"})
 
     def fake_run(cmd, *, input, capture_output, text):
         return _FakeRunResult(1, "", "connection refused")

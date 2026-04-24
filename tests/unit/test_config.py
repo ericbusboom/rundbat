@@ -147,3 +147,170 @@ class TestConfigError:
         assert d["command"] == "dotconfig load"
         assert d["exit_code"] == 1
         assert d["stderr"] == "bad stuff"
+
+
+class TestLoadEnvDict:
+    """Tests for ``config.load_env_dict`` — the JSON-based env loader.
+
+    Regression coverage for sprint 010 / T01: ``rundbat secret create``
+    must see the byte-for-byte plaintext of every value, with no
+    ``export`` prefix on keys, no quote artifacts, and no inline
+    comments folded into values. ``load_env_dict`` delegates that
+    cleanup to ``dotconfig --json --no-export --flat -S``; these
+    tests verify that the JSON path is wired up correctly and that
+    the returned values are usable as-is.
+    """
+
+    def _patch_dotconfig_json(self, monkeypatch, payload: dict):
+        """Make ``_run_dotconfig`` return the JSON encoding of payload."""
+        captured: dict = {}
+
+        def fake_run(args, timeout=30):
+            captured["args"] = args
+            return json.dumps(payload)
+
+        monkeypatch.setattr("rundbat.config._run_dotconfig", fake_run)
+        return captured
+
+    def test_uses_no_export_json_flat_strict_flags(self, monkeypatch):
+        from rundbat.config import load_env_dict
+
+        captured = self._patch_dotconfig_json(monkeypatch, {})
+        load_env_dict("prod")
+        assert captured["args"] == [
+            "load", "-d", "prod",
+            "--no-export", "--json", "--flat", "-S",
+        ]
+
+    def test_plain_value_round_trips(self, monkeypatch):
+        from rundbat.config import load_env_dict
+
+        self._patch_dotconfig_json(monkeypatch, {"FOO": "bar"})
+        assert load_env_dict("prod") == {"FOO": "bar"}
+
+    def test_value_with_spaces_preserved(self, monkeypatch):
+        from rundbat.config import load_env_dict
+
+        self._patch_dotconfig_json(monkeypatch, {"FOO": "bar baz"})
+        assert load_env_dict("prod")["FOO"] == "bar baz"
+
+    def test_value_with_hash_preserved(self, monkeypatch):
+        # A '#' inside a value must not be treated as a comment.
+        from rundbat.config import load_env_dict
+
+        self._patch_dotconfig_json(monkeypatch, {"FOO": "abc#def"})
+        assert load_env_dict("prod")["FOO"] == "abc#def"
+
+    def test_value_inline_comment_already_stripped_by_dotconfig(
+        self, monkeypatch
+    ):
+        # dotconfig's JSON output strips inline comments before
+        # serializing. We verify that our dict path returns whatever
+        # dotconfig serialized — no further parsing.
+        from rundbat.config import load_env_dict
+
+        self._patch_dotconfig_json(
+            monkeypatch,
+            {"MEETUP_PRIVATE_KEY": "config/files/stu1884.pem"},
+        )
+        assert (
+            load_env_dict("prod")["MEETUP_PRIVATE_KEY"]
+            == "config/files/stu1884.pem"
+        )
+
+    def test_no_export_prefix_in_keys(self, monkeypatch):
+        # Bug 2 in the TODO: text parsing kept ``export`` in the key.
+        # JSON output never had it.
+        from rundbat.config import load_env_dict
+
+        self._patch_dotconfig_json(monkeypatch, {"MEETUP_CLIENT_ID": "abc"})
+        env = load_env_dict("prod")
+        assert "MEETUP_CLIENT_ID" in env
+        assert "export MEETUP_CLIENT_ID" not in env
+
+    def test_invalid_json_raises_config_error(self, monkeypatch):
+        from rundbat.config import load_env_dict
+
+        def fake_run(args, timeout=30):
+            return "not json"
+
+        monkeypatch.setattr("rundbat.config._run_dotconfig", fake_run)
+        with pytest.raises(ConfigError) as exc:
+            load_env_dict("prod")
+        assert "valid JSON" in str(exc.value)
+
+    def test_non_object_json_raises_config_error(self, monkeypatch):
+        from rundbat.config import load_env_dict
+
+        def fake_run(args, timeout=30):
+            return json.dumps(["not", "an", "object"])
+
+        monkeypatch.setattr("rundbat.config._run_dotconfig", fake_run)
+        with pytest.raises(ConfigError) as exc:
+            load_env_dict("prod")
+        assert "JSON object" in str(exc.value)
+
+
+class TestSecretCreateBytewise:
+    """Verify ``cmd_secret_create`` pipes the byte-for-byte value.
+
+    Regression coverage for sprint 010 / T01: every quoting / comment
+    edge case from the bug TODO is exercised by stubbing
+    ``load_env_dict`` and asserting that the value handed to
+    ``docker secret create`` matches exactly.
+    """
+
+    def _stub_environment(self, monkeypatch, env_map: dict):
+        monkeypatch.setattr(
+            "rundbat.config.load_config",
+            lambda: {
+                "app_name": "myapp",
+                "deployments": {"prod": {"docker_context": "ctx"}},
+            },
+        )
+        monkeypatch.setattr(
+            "rundbat.config.load_env_dict",
+            lambda env: env_map,
+        )
+
+    def _capture_docker_run(self, monkeypatch):
+        captured: dict = {}
+
+        class _Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def fake_run(cmd, *, input, capture_output, text):
+            captured["cmd"] = cmd
+            captured["stdin"] = input
+            return _Result()
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        return captured
+
+    @pytest.mark.parametrize("value", [
+        "plain_value",
+        "with spaces and 'apostrophes'",
+        'with "double" quotes',
+        "abc#def",
+        "value-with-equals=in-it",
+        "trailing-and-leading-keep-them",  # whitespace-trim is dotconfig's job
+    ])
+    def test_value_is_piped_byte_for_byte(self, monkeypatch, value):
+        import types as _types
+
+        self._stub_environment(monkeypatch, {"K": value})
+        captured = self._capture_docker_run(monkeypatch)
+
+        from rundbat.cli import cmd_secret_create
+
+        args = _types.SimpleNamespace()
+        args.env = "prod"
+        args.key = "K"
+        args.json = False
+        cmd_secret_create(args)
+
+        assert captured["stdin"] == value
+        assert captured["cmd"][:3] == ["docker", "--context", "ctx"]
+        assert captured["cmd"][-1] == "-"
