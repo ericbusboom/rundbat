@@ -142,6 +142,57 @@ class TestGetBuildableImages:
     def test_missing_file(self):
         assert _get_buildable_images("/nonexistent/compose.yml") == []
 
+    def test_prefers_explicit_image_tag_when_build_present(self, tmp_path):
+        """Sprint 009: explicit image: wins over <project>-<service> default.
+
+        Swarm stack deploys reference image: tags directly — the
+        transferred tag must match or the remote pull will fail.
+        """
+        compose = {
+            "services": {
+                "app": {
+                    "build": {"context": ".."},
+                    "image": "myapp:prod",
+                    "ports": ["3000:3000"],
+                },
+            }
+        }
+        compose_file = tmp_path / "docker" / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(yaml.dump(compose))
+
+        images = _get_buildable_images(str(compose_file))
+        assert images == ["myapp:prod"]
+
+    def test_build_only_falls_back_to_default(self, tmp_path):
+        """Regression: build without image still gets the <project>-<service> default."""
+        compose = {
+            "services": {
+                "app": {"build": {"context": ".."}},
+            }
+        }
+        compose_file = tmp_path / "docker" / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(yaml.dump(compose))
+
+        images = _get_buildable_images(str(compose_file))
+        # parent.parent.name is the tmp_path's own basename
+        assert len(images) == 1
+        assert images[0].endswith("-app")
+
+    def test_image_only_excluded(self, tmp_path):
+        """Regression: image without build stays excluded (nothing to transfer)."""
+        compose = {
+            "services": {
+                "postgres": {"image": "postgres:16"},
+            }
+        }
+        compose_file = tmp_path / "docker" / "docker-compose.yml"
+        compose_file.parent.mkdir(parents=True)
+        compose_file.write_text(yaml.dump(compose))
+
+        assert _get_buildable_images(str(compose_file)) == []
+
 
 # ---------------------------------------------------------------------------
 # Cleanup

@@ -128,10 +128,21 @@ def _ssh_cmd(host_url: str, ssh_key: str | None = None) -> str:
 
 
 def _get_buildable_images(compose_file: str) -> list[str]:
-    """Get image names for services that have a build section.
+    """Get image tags for services that need to be built and transferred.
 
-    Parses the compose file YAML directly to find services with 'build'
-    and derives image names from compose's naming convention.
+    For the ssh-transfer strategy we ``docker save`` the images locally
+    and ``docker load`` them on the remote. The tag must match whatever
+    the compose/stack file will reference at runtime.
+
+    Sprint 009: when a service declares an explicit ``image:`` alongside
+    its ``build:`` (required for swarm deployments), prefer the
+    declared tag — that's what Swarm will try to pull on worker nodes.
+    When a service has ``build:`` but no ``image:`` (compose-mode
+    without an explicit tag), fall back to compose's default naming
+    convention ``<project>-<service>``.
+
+    Services with ``image:`` but no ``build:`` are excluded: nothing
+    local to transfer.
     """
     import yaml
 
@@ -145,7 +156,12 @@ def _get_buildable_images(compose_file: str) -> list[str]:
 
     images = []
     for svc_name, svc_cfg in services.items():
-        if isinstance(svc_cfg, dict) and "build" in svc_cfg:
+        if not isinstance(svc_cfg, dict) or "build" not in svc_cfg:
+            continue
+        explicit_image = svc_cfg.get("image")
+        if explicit_image:
+            images.append(explicit_image)
+        else:
             # Docker compose names images as <project>-<service>
             images.append(f"{project}-{svc_name}")
 
