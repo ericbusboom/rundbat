@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: Skill and agent documentation updates for image requirement
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 - SUC-002
@@ -41,13 +41,13 @@ Bump `pyproject.toml` version.
 
 ## Acceptance Criteria
 
-- [ ] `docker-swarm-deploy.md` has an "Image requirement" section
+- [x] `docker-swarm-deploy.md` has an "Image requirement" section
       and a short per-strategy rundown.
-- [ ] `deploy-init.md` documents the new image prompt.
-- [ ] `diagnose.md` has a "no image specified" troubleshooting
+- [x] `deploy-init.md` documents the new image prompt.
+- [x] `diagnose.md` has a "no image specified" troubleshooting
       entry.
-- [ ] `uv run pytest` passes.
-- [ ] Version bumped in `pyproject.toml`.
+- [x] `uv run pytest` passes.
+- [x] Version bumped in `pyproject.toml`.
 
 ## Testing
 
