@@ -1,9 +1,13 @@
 ---
-id: "008"
-title: "Swarm support in rundbat"
-status: planning
+id: 008
+title: Swarm support in rundbat
+status: done
 branch: sprint/008-swarm-support-in-rundbat
-use-cases: [SUC-001, SUC-002, SUC-003, SUC-004]
+use-cases:
+- SUC-001
+- SUC-002
+- SUC-003
+- SUC-004
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
