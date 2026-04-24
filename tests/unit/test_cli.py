@@ -304,6 +304,178 @@ def test_probe_still_records_caddy(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# CLI stack lifecycle (T05)
+# ---------------------------------------------------------------------------
+
+def _lifecycle_args(name="prod", as_json=False, **extra):
+    args = types.SimpleNamespace()
+    args.name = name
+    args.json = as_json
+    for k, v in extra.items():
+        setattr(args, k, v)
+    return args
+
+
+def _install_lifecycle_fakes(monkeypatch, cfg, *, compose_exists=True,
+                             run_returncode=0):
+    """Patch config, filesystem and _run_cmd for lifecycle tests. Returns
+    the list of captured (cmd, env) tuples."""
+    monkeypatch.setattr("rundbat.config.load_config", lambda: cfg)
+    # Checkout is a no-op here (env_source != dotconfig).
+    monkeypatch.setattr("rundbat.cli._checkout_config",
+                        lambda name, dep_cfg, verbose=False: None)
+    # Compose file existence — stub Path.exists. We take a light
+    # touch and monkey-patch _compose_file_for_deployment to return a
+    # Path-like with the desired exists() behavior.
+    class _FakePath:
+        def __init__(self, p): self._p = p
+        def exists(self): return compose_exists
+        def __str__(self): return self._p
+        def __fspath__(self): return self._p
+
+    def fake_compose_file(name, dep_cfg):
+        return _FakePath(dep_cfg.get("compose_file",
+                                     f"docker/docker-compose.{name}.yml"))
+
+    monkeypatch.setattr("rundbat.cli._compose_file_for_deployment",
+                        fake_compose_file)
+
+    captured = []
+
+    def fake_run_cmd(cmd, env=None, verbose=False, **kwargs):
+        captured.append({"cmd": list(cmd), "env": dict(env) if env else None})
+
+        class _R:
+            returncode = run_returncode
+            stdout = ""
+            stderr = ""
+        return _R()
+
+    monkeypatch.setattr("rundbat.cli._run_cmd", fake_run_cmd)
+    return captured
+
+
+_CFG_STACK = {
+    "app_name": "myapp",
+    "deployments": {
+        "prod": {
+            "docker_context": "prod-ctx",
+            "deploy_mode": "stack",
+        }
+    },
+}
+
+
+def test_cmd_up_stack_mode_runs_stack_deploy(monkeypatch):
+    captured = _install_lifecycle_fakes(monkeypatch, _CFG_STACK)
+    from rundbat.cli import cmd_up
+    cmd_up(_lifecycle_args(workflow=False))
+    assert captured[-1]["cmd"][:2] == ["docker", "--context"]
+    assert "stack" in captured[-1]["cmd"]
+    assert "deploy" in captured[-1]["cmd"]
+    assert "myapp_prod" in captured[-1]["cmd"]  # default stack name
+
+
+def test_cmd_down_stack_mode_runs_stack_rm(monkeypatch):
+    captured = _install_lifecycle_fakes(monkeypatch, _CFG_STACK)
+    from rundbat.cli import cmd_down
+    cmd_down(_lifecycle_args())
+    assert captured[-1]["cmd"] == [
+        "docker", "--context", "prod-ctx", "stack", "rm", "myapp_prod"
+    ]
+
+
+def test_cmd_logs_stack_mode_runs_service_logs(monkeypatch):
+    captured = _install_lifecycle_fakes(monkeypatch, _CFG_STACK)
+    from rundbat.cli import cmd_logs
+    cmd_logs(_lifecycle_args())
+    # First service is app.
+    assert captured[0]["cmd"] == [
+        "docker", "--context", "prod-ctx", "service", "logs", "-f",
+        "myapp_prod_app",
+    ]
+
+
+def test_cmd_restart_stack_mode_calls_rm_then_deploy(monkeypatch):
+    captured = _install_lifecycle_fakes(monkeypatch, _CFG_STACK)
+    from rundbat.cli import cmd_restart
+    cmd_restart(_lifecycle_args(build=False))
+    cmds = [c["cmd"] for c in captured]
+    # stack rm first, stack deploy second
+    assert any("rm" in c and "myapp_prod" in c for c in cmds)
+    assert any("deploy" in c and "myapp_prod" in c for c in cmds)
+    rm_idx = next(i for i, c in enumerate(cmds) if "rm" in c)
+    deploy_idx = next(i for i, c in enumerate(cmds) if "deploy" in c)
+    assert rm_idx < deploy_idx
+
+
+def test_stack_name_defaults_to_app_underscore_deployment(monkeypatch):
+    captured = _install_lifecycle_fakes(monkeypatch, _CFG_STACK)
+    from rundbat.cli import cmd_up
+    cmd_up(_lifecycle_args(workflow=False))
+    assert "myapp_prod" in captured[-1]["cmd"]
+
+
+def test_stack_name_override_via_stack_name_field(monkeypatch):
+    cfg = {
+        "app_name": "myapp",
+        "deployments": {
+            "prod": {
+                "docker_context": "ctx",
+                "deploy_mode": "stack",
+                "stack_name": "custom",
+            }
+        },
+    }
+    captured = _install_lifecycle_fakes(monkeypatch, cfg)
+    from rundbat.cli import cmd_up
+    cmd_up(_lifecycle_args(workflow=False))
+    assert "custom" in captured[-1]["cmd"]
+    assert "myapp_prod" not in captured[-1]["cmd"]
+
+
+def test_auto_upgrade_to_stack_when_swarm_true(monkeypatch):
+    """swarm: true + no explicit deploy_mode should auto-upgrade to stack."""
+    cfg = {
+        "app_name": "myapp",
+        "deployments": {
+            "prod": {
+                "docker_context": "ctx",
+                "swarm": True,
+                # NO deploy_mode field
+            }
+        },
+    }
+    captured = _install_lifecycle_fakes(monkeypatch, cfg)
+    from rundbat.cli import cmd_up
+    cmd_up(_lifecycle_args(workflow=False))
+    assert "stack" in captured[-1]["cmd"]
+    assert "deploy" in captured[-1]["cmd"]
+
+
+def test_compose_mode_unchanged_regression(monkeypatch):
+    cfg = {
+        "app_name": "myapp",
+        "deployments": {"prod": {"docker_context": "ctx"}},
+    }
+    captured = _install_lifecycle_fakes(monkeypatch, cfg)
+    from rundbat.cli import cmd_up
+    cmd_up(_lifecycle_args(workflow=False))
+    # Should still use docker compose, NOT stack.
+    assert "compose" in captured[-1]["cmd"]
+    assert "stack" not in captured[-1]["cmd"]
+
+
+def test_effective_deploy_mode_helper():
+    from rundbat.cli import _effective_deploy_mode
+    assert _effective_deploy_mode({}) == "compose"
+    assert _effective_deploy_mode({"deploy_mode": "run"}) == "run"
+    assert _effective_deploy_mode({"deploy_mode": "compose", "swarm": True}) == "compose"
+    assert _effective_deploy_mode({"swarm": True}) == "stack"
+    assert _effective_deploy_mode({"swarm": False}) == "compose"
+
+
+# ---------------------------------------------------------------------------
 # cmd_secret_create (T07)
 # ---------------------------------------------------------------------------
 

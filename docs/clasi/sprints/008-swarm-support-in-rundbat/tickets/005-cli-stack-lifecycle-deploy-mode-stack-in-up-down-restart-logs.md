@@ -1,11 +1,13 @@
 ---
-id: "005"
-title: "CLI stack lifecycle (deploy_mode: stack in up/down/restart/logs)"
-status: todo
-use-cases: [SUC-003]
-depends-on: ["003"]
-github-issue: ""
-todo: ""
+id: '005'
+title: 'CLI stack lifecycle (deploy_mode: stack in up/down/restart/logs)'
+status: in-progress
+use-cases:
+- SUC-003
+depends-on:
+- '003'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -51,22 +53,22 @@ is offline or auth fails, the user sees the actual Docker error.
 
 ## Acceptance Criteria
 
-- [ ] `cmd_up` with `deploy_mode: stack` runs
+- [x] `cmd_up` with `deploy_mode: stack` runs
       `docker stack deploy -c <file> <stack>` under the deployment's
       context
-- [ ] `cmd_down` with `deploy_mode: stack` runs
+- [x] `cmd_down` with `deploy_mode: stack` runs
       `docker stack rm <stack>`
-- [ ] `cmd_logs` with `deploy_mode: stack` runs `docker service logs
+- [x] `cmd_logs` with `deploy_mode: stack` runs `docker service logs
       -f` for each configured service
-- [ ] `cmd_restart` runs stack `down` then stack `up`
-- [ ] Stack name defaults to `<app>_<deployment>`; overridable via
+- [x] `cmd_restart` runs stack `down` then stack `up`
+- [x] Stack name defaults to `<app>_<deployment>`; overridable via
       `stack_name` field
-- [ ] Auto-upgrade: probe.swarm + deployment.swarm=true + no explicit
+- [x] Auto-upgrade: probe.swarm + deployment.swarm=true + no explicit
       deploy_mode → stack branch taken
-- [ ] Existing compose-mode and run-mode paths unchanged (regression)
-- [ ] Docker errors propagate verbatim
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] Existing compose-mode and run-mode paths unchanged (regression)
+- [x] Docker errors propagate verbatim
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 

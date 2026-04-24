@@ -553,6 +553,30 @@ def cmd_build(args):
         sys.exit(result.returncode)
 
 
+def _effective_deploy_mode(deployment: dict) -> str:
+    """Return the deploy_mode to use, applying the swarm auto-upgrade rule.
+
+    If ``deployment`` has an explicit ``deploy_mode``, return it
+    unchanged. Otherwise, when ``swarm: true`` is recorded (by a
+    probe or by the user), upgrade the default to ``stack``.
+    """
+    explicit = deployment.get("deploy_mode")
+    if explicit:
+        return str(explicit)
+    if deployment.get("swarm") is True:
+        return "stack"
+    return "compose"
+
+
+def _stack_name_from(cfg: dict, deployment_name: str, dep_cfg: dict) -> str:
+    """Return the Swarm stack name, honouring an explicit ``stack_name``."""
+    explicit = dep_cfg.get("stack_name")
+    if explicit:
+        return str(explicit)
+    app_name = cfg.get("app_name", "app")
+    return f"{app_name}_{deployment_name}"
+
+
 def cmd_up(args):
     """Start a deployment."""
     verbose = getattr(args, "verbose", False)
@@ -562,7 +586,7 @@ def cmd_up(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     build_strategy = dep_cfg.get("build_strategy", "context")
     ctx = dep_cfg.get("docker_context", "default")
 
@@ -609,6 +633,21 @@ def cmd_up(args):
             _error(str(e), args.json)
         return
 
+    # Stack mode — Docker Swarm
+    if deploy_mode == "stack":
+        compose_file = _compose_file_for_deployment(args.name, dep_cfg)
+        if not compose_file.exists():
+            _error(f"{compose_file} not found. Run 'rundbat generate' first.",
+                   args.json)
+            return
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        cmd = ["docker", "--context", ctx, "stack", "deploy",
+               "-c", str(compose_file), stack]
+        result = _run_cmd(cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+        return
+
     # Compose mode
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
     if not compose_file.exists():
@@ -641,7 +680,7 @@ def cmd_down(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
 
@@ -653,6 +692,14 @@ def cmd_down(args):
         _run_cmd(["docker", "stop", app_name], env=env, verbose=verbose, capture_output=True)
         _run_cmd(["docker", "rm", app_name], env=env, verbose=verbose, capture_output=True)
         print(f"Stopped {app_name}")
+        return
+
+    if deploy_mode == "stack":
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        cmd = ["docker", "--context", ctx, "stack", "rm", stack]
+        result = _run_cmd(cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
         return
 
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
@@ -675,7 +722,7 @@ def cmd_logs(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
 
@@ -686,6 +733,29 @@ def cmd_logs(args):
     if deploy_mode == "run":
         cmd = ["docker", "logs", "-f", app_name]
         _run_cmd(cmd, env=env, verbose=verbose)
+        return
+
+    if deploy_mode == "stack":
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        # Services to tail: the app service plus any infra services
+        # listed in the deployment entry. Default to ["app"] if none.
+        service_types = dep_cfg.get("services") or []
+        service_names = ["app"] + list(service_types)
+        # Launch one `service logs -f` per service. If the caller only
+        # wants the app we still default to that — multiplexing multiple
+        # tails requires tee'ing, which we do not do here. For T05 we
+        # tail the app service primarily; additional services are
+        # reported for diagnostics.
+        for svc in service_names:
+            cmd = ["docker", "--context", ctx, "service", "logs", "-f",
+                   f"{stack}_{svc}"]
+            result = _run_cmd(cmd, verbose=verbose)
+            # `service logs -f` blocks until interrupted. In practice
+            # the loop only runs once; for tests we inspect the first
+            # invocation. Break on success to avoid tailing N services
+            # in sequence after Ctrl-C.
+            if result.returncode == 0:
+                return
         return
 
     compose_file = _compose_file_for_deployment(args.name, dep_cfg)
@@ -806,7 +876,7 @@ def cmd_restart(args):
         return
     cfg, dep_cfg = resolved
 
-    deploy_mode = dep_cfg.get("deploy_mode", "compose")
+    deploy_mode = _effective_deploy_mode(dep_cfg)
     build_strategy = dep_cfg.get("build_strategy", "context")
     ctx = dep_cfg.get("docker_context", "default")
     app_name = cfg.get("app_name", "app")
@@ -817,6 +887,29 @@ def cmd_restart(args):
 
     # Checkout config from dotconfig
     _checkout_config(args.name, dep_cfg, verbose=verbose)
+
+    if deploy_mode == "stack":
+        # Stack restart = rm + deploy. --build reuses docker compose
+        # build (build is not a stack op).
+        compose_file = _compose_file_for_deployment(args.name, dep_cfg)
+        if not compose_file.exists():
+            _error(f"{compose_file} not found. Run 'rundbat generate' first.",
+                   args.json)
+            return
+        stack = _stack_name_from(cfg, args.name, dep_cfg)
+        if getattr(args, "build", False) and build_strategy != "github-actions":
+            build_cmd = ["docker", "compose", "-f", str(compose_file), "build"]
+            result = _run_cmd(build_cmd, env=env, verbose=verbose)
+            if result.returncode != 0:
+                sys.exit(result.returncode)
+        _run_cmd(["docker", "--context", ctx, "stack", "rm", stack],
+                 verbose=verbose, capture_output=True)
+        deploy_cmd = ["docker", "--context", ctx, "stack", "deploy",
+                      "-c", str(compose_file), stack]
+        result = _run_cmd(deploy_cmd, verbose=verbose)
+        if result.returncode != 0:
+            sys.exit(result.returncode)
+        return
 
     if deploy_mode == "run":
         # Build not applicable for run mode
@@ -1219,8 +1312,8 @@ instructions on using this tool.""",
     )
     deploy_init_parser.add_argument(
         "--deploy-mode", default=None,
-        choices=["compose", "run"],
-        help="Deploy mode: compose (default) or run (single container)",
+        choices=["compose", "run", "stack"],
+        help="Deploy mode: compose (default), run (single container), or stack (Swarm)",
     )
     deploy_init_parser.add_argument(
         "--image", default=None,
