@@ -240,10 +240,29 @@ def cmd_deploy(args):
                 print(f"  {result['url']}")
 
 
+def _prompt_yes_no(message: str, default_yes: bool = True) -> bool:
+    """Prompt for a yes/no answer, defaulting as specified.
+
+    Non-interactive stdin (no tty / EOFError) returns the default —
+    this keeps CI and scripted invocations usable.
+    """
+    suffix = "[Y/n]" if default_yes else "[y/N]"
+    try:
+        ans = input(f"{message} {suffix} ").strip().lower()
+    except EOFError:
+        return default_yes
+    if not ans:
+        return default_yes
+    return ans in ("y", "yes")
+
+
 def cmd_deploy_init(args):
     """Set up a new deployment target."""
-    from rundbat import deploy
+    from rundbat import deploy, config
     from rundbat.deploy import DeployError
+
+    deploy_mode = getattr(args, "deploy_mode", None)
+    swarm_opt_in = False
 
     try:
         result = deploy.init_deployment(
@@ -252,12 +271,50 @@ def cmd_deploy_init(args):
             hostname=args.hostname,
             build_strategy=args.strategy,
             ssh_key=args.ssh_key,
-            deploy_mode=getattr(args, "deploy_mode", None),
+            deploy_mode=deploy_mode,
             image=getattr(args, "image", None),
         )
     except DeployError as e:
         _error(str(e), args.json)
         return
+
+    # Swarm probe + opt-in prompt (T06).
+    from rundbat.discovery import detect_swarm
+    ctx = result.get("context")
+    swarm_probe = detect_swarm(ctx) if ctx else {
+        "swarm": False, "swarm_role": "", "reachable": False
+    }
+    if swarm_probe.get("reachable") and swarm_probe.get("swarm"):
+        role = swarm_probe.get("swarm_role") or "?"
+        if args.json:
+            # Non-interactive: auto-accept the opt-in when JSON
+            # output is requested. Keeps scripted flows useful.
+            swarm_opt_in = True
+        else:
+            print(f"Swarm detected on {args.host} (role: {role}).")
+            swarm_opt_in = _prompt_yes_no(
+                "Enable stack mode (swarm: true, deploy_mode: stack)?",
+                default_yes=True,
+            )
+    elif not swarm_probe.get("reachable") and ctx:
+        # Reachability failed — warn but proceed with defaults.
+        print("Warning: could not probe Swarm state on the remote "
+              f"context '{ctx}'. Continuing with defaults.",
+              file=sys.stderr)
+
+    if swarm_opt_in:
+        cfg = config.load_config()
+        deployments = cfg.get("deployments", {})
+        entry = deployments.get(args.name, {})
+        entry["swarm"] = True
+        if swarm_probe.get("swarm_role"):
+            entry["swarm_role"] = swarm_probe["swarm_role"]
+        entry["deploy_mode"] = "stack"
+        deployments[args.name] = entry
+        cfg["deployments"] = deployments
+        config.save_config(data=cfg)
+        result["swarm"] = True
+        result["deploy_mode"] = "stack"
 
     if args.json:
         _output(result, args.json)
@@ -274,6 +331,8 @@ def cmd_deploy_init(args):
             print(f"  Remote platform: {result['platform']} (local: {local_plat})")
             if result["platform"] != local_plat:
                 print(f"  Cross-architecture: yes — images will be built for {result['platform']}")
+        if result.get("swarm"):
+            print(f"  Swarm: enabled (deploy_mode: stack)")
         print(f"\nRun 'rundbat deploy {result['deployment']}' to deploy.")
 
 

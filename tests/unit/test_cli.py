@@ -304,6 +304,131 @@ def test_probe_still_records_caddy(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# cmd_deploy_init Swarm prompt (T06)
+# ---------------------------------------------------------------------------
+
+def _make_deploy_init_args(**overrides):
+    args = types.SimpleNamespace()
+    args.name = "prod"
+    args.host = "ssh://root@prod.example.com"
+    args.compose_file = None
+    args.hostname = None
+    args.strategy = None
+    args.ssh_key = None
+    args.deploy_mode = None
+    args.image = None
+    args.json = False
+    for k, v in overrides.items():
+        setattr(args, k, v)
+    return args
+
+
+def _patch_deploy_init_common(monkeypatch, swarm_probe):
+    """Install fakes for cmd_deploy_init swarm tests.
+
+    Returns ``saved_cfg`` dict, populated if cmd_deploy_init writes a
+    swarm entry back via config.save_config.
+    """
+    saved_cfg: dict = {}
+
+    def fake_init_deployment(name, host, **kwargs):
+        return {
+            "status": "ok",
+            "deployment": name,
+            "context": "prod-ctx",
+            "host": host,
+            "platform": None,
+            "build_strategy": "context",
+            "ssh_key": None,
+            "deploy_mode": kwargs.get("deploy_mode"),
+        }
+
+    monkeypatch.setattr("rundbat.deploy.init_deployment", fake_init_deployment)
+    monkeypatch.setattr("rundbat.discovery.detect_swarm",
+                        lambda ctx: swarm_probe)
+    # Config stubs — the probe-accept path reads and writes config.
+    fake_cfg = {
+        "deployments": {
+            "prod": {
+                "docker_context": "prod-ctx",
+                "host": "ssh://root@prod.example.com",
+            }
+        }
+    }
+    monkeypatch.setattr("rundbat.config.load_config",
+                        lambda: {k: v for k, v in fake_cfg.items()})
+    monkeypatch.setattr("rundbat.config.save_config",
+                        lambda data: saved_cfg.update(data))
+    return saved_cfg
+
+
+def test_deploy_init_swarm_detected_accepts_and_writes_fields(monkeypatch):
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": True, "swarm_role": "manager", "reachable": True},
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    entry = saved["deployments"]["prod"]
+    assert entry["swarm"] is True
+    assert entry["deploy_mode"] == "stack"
+    assert entry["swarm_role"] == "manager"
+
+
+def test_deploy_init_swarm_decline_writes_no_swarm_fields(monkeypatch):
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": True, "swarm_role": "manager", "reachable": True},
+    )
+    monkeypatch.setattr("builtins.input", lambda prompt="": "n")
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    # save_config should NOT have been called with swarm fields.
+    assert saved == {}
+
+
+def test_deploy_init_swarm_not_detected_no_prompt(monkeypatch):
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": False, "swarm_role": "", "reachable": True},
+    )
+
+    def forbidden_input(prompt=""):
+        raise AssertionError("input() should not be called when swarm is absent")
+
+    monkeypatch.setattr("builtins.input", forbidden_input)
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    assert saved == {}
+
+
+def test_deploy_init_swarm_unreachable_warns_and_proceeds(monkeypatch, capsys):
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": False, "swarm_role": "", "reachable": False},
+    )
+
+    def forbidden_input(prompt=""):
+        raise AssertionError("input() should not be called when probe is unreachable")
+
+    monkeypatch.setattr("builtins.input", forbidden_input)
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    captured = capsys.readouterr()
+    assert "could not probe" in captured.err.lower() or "Warning" in captured.err
+    assert saved == {}
+
+
+# ---------------------------------------------------------------------------
 # CLI stack lifecycle (T05)
 # ---------------------------------------------------------------------------
 

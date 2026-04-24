@@ -1,11 +1,14 @@
 ---
-id: "006"
-title: "deploy-init Swarm prompt (auto-probe, offer swarm opt-in)"
-status: todo
-use-cases: [SUC-002]
-depends-on: ["002", "005"]
-github-issue: ""
-todo: ""
+id: '006'
+title: deploy-init Swarm prompt (auto-probe, offer swarm opt-in)
+status: in-progress
+use-cases:
+- SUC-002
+depends-on:
+- '002'
+- '005'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -43,21 +46,21 @@ prompt.
 
 ## Acceptance Criteria
 
-- [ ] `cmd_deploy_init` runs `detect_swarm(context)` after selecting
+- [x] `cmd_deploy_init` runs `detect_swarm(context)` after selecting
       the Docker context
-- [ ] When Swarm is detected, user is prompted: "Enable stack mode
+- [x] When Swarm is detected, user is prompted: "Enable stack mode
       (swarm: true, deploy_mode: stack)? [Y/n]"
-- [ ] Accept → both fields are written to the new deployment entry
-- [ ] Decline → neither field is written; compose mode applies
-- [ ] When Swarm is NOT detected, no prompt appears and no swarm
+- [x] Accept → both fields are written to the new deployment entry
+- [x] Decline → neither field is written; compose mode applies
+- [x] When Swarm is NOT detected, no prompt appears and no swarm
       fields are written
-- [ ] Unreachable probe prints a warning and proceeds with defaults
+- [x] Unreachable probe prints a warning and proceeds with defaults
       (no swarm fields written)
-- [ ] `deploy-init.md` skill documents this step
-- [ ] Existing deploy-init flows (non-swarm hosts) are unchanged
+- [x] `deploy-init.md` skill documents this step
+- [x] Existing deploy-init flows (non-swarm hosts) are unchanged
       (regression)
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 
