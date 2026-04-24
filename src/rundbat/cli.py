@@ -697,6 +697,106 @@ def cmd_logs(args):
     _run_cmd(cmd, env=env, verbose=verbose)
 
 
+def _parse_env_text(text: str) -> dict:
+    """Parse KEY=VALUE lines from a .env-style text into a dict.
+
+    Ignores blank lines, comments, and malformed lines. Values keep
+    their raw form (no unquoting) — callers pipe them straight to
+    Docker.
+    """
+    result: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        result[key.strip()] = value
+    return result
+
+
+def cmd_secret_create(args):
+    """Create (or rotate) a Swarm secret from a dotconfig-backed value.
+
+    Usage: ``rundbat secret create <env> <KEY>``
+
+    Reads ``KEY`` from the deployment's dotconfig env bundle, computes
+    the versioned Swarm secret name (``<app>_<key_lc>_v<YYYYMMDD>``),
+    and pipes the value into ``docker --context <ctx> secret create
+    <name> -`` on stdin.
+    """
+    from datetime import datetime, timezone
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(str(e), args.json)
+        return
+
+    deployments = cfg.get("deployments", {})
+    env_name = args.env
+    if env_name not in deployments:
+        _error(f"Deployment '{env_name}' not found in rundbat.yaml", args.json)
+        return
+
+    dep = deployments[env_name]
+    ctx = dep.get("docker_context")
+    if not ctx:
+        _error(f"Deployment '{env_name}' has no docker_context", args.json)
+        return
+
+    key = args.key
+    try:
+        env_text = config.load_env(env_name)
+    except ConfigError as e:
+        _error(f"Failed to load dotconfig env for '{env_name}': {e}", args.json)
+        return
+
+    env_map = _parse_env_text(env_text)
+    if key not in env_map:
+        _error(f"Key '{key}' not found in dotconfig env for '{env_name}'", args.json)
+        return
+
+    value = env_map[key]
+
+    app_name = cfg.get("app_name", "app")
+    date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    secret_name = f"{app_name}_{key.lower()}_v{date_stamp}"
+
+    cmd = ["docker", "--context", ctx, "secret", "create", secret_name, "-"]
+    result = _run_cmd_stdin(cmd, stdin_value=value,
+                            verbose=getattr(args, "verbose", False))
+    if result.returncode != 0:
+        stderr = (result.stderr or "").strip() if hasattr(result, "stderr") else ""
+        _error(
+            f"docker secret create failed (exit {result.returncode}): {stderr}",
+            args.json,
+        )
+        return
+
+    _output({"secret_name": secret_name, "deployment": env_name,
+             "docker_context": ctx}, args.json)
+
+
+def _run_cmd_stdin(cmd: list[str], *, stdin_value: str, verbose: bool = False):
+    """Run a subprocess command, piping a string into stdin.
+
+    Returns a ``CompletedProcess`` with ``stdout``/``stderr`` captured.
+    """
+    import subprocess
+    if verbose:
+        print(f"  $ {' '.join(cmd)}  (stdin redacted)", file=sys.stderr)
+    return subprocess.run(
+        cmd,
+        input=stdin_value,
+        capture_output=True,
+        text=True,
+    )
+
+
 def cmd_restart(args):
     """Restart a deployment: down then up. With --build: build, down, up."""
     verbose = getattr(args, "verbose", False)
@@ -1142,6 +1242,29 @@ instructions on using this tool.""",
     )
     _add_json_flag(probe_parser)
     probe_parser.set_defaults(func=cmd_probe)
+
+    # rundbat secret <subcommand>
+    secret_parser = subparsers.add_parser(
+        "secret", help="Manage Docker Swarm secrets from dotconfig values",
+    )
+    secret_sub = secret_parser.add_subparsers(dest="secret_command")
+    secret_create_parser = secret_sub.add_parser(
+        "create",
+        help="Create a versioned Swarm secret from a dotconfig value",
+    )
+    secret_create_parser.add_argument(
+        "env", help="Deployment name (from rundbat.yaml)",
+    )
+    secret_create_parser.add_argument(
+        "key", help="Secret key name as stored in dotconfig (e.g., POSTGRES_PASSWORD)",
+    )
+    _add_json_flag(secret_create_parser)
+    secret_create_parser.set_defaults(func=cmd_secret_create)
+
+    def _secret_default(args):
+        secret_parser.print_help()
+        sys.exit(0)
+    secret_parser.set_defaults(func=_secret_default)
 
     args = parser.parse_args()
 

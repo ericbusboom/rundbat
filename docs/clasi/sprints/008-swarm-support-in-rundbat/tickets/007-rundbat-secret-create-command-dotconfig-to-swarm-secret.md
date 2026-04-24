@@ -1,11 +1,12 @@
 ---
-id: "007"
-title: "rundbat secret create command (dotconfig to Swarm secret)"
-status: todo
-use-cases: [SUC-004]
+id: '007'
+title: rundbat secret create command (dotconfig to Swarm secret)
+status: in-progress
+use-cases:
+- SUC-004
 depends-on: []
-github-issue: ""
-todo: ""
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -47,18 +48,18 @@ Error handling:
 
 ## Acceptance Criteria
 
-- [ ] `rundbat secret create <env> <KEY>` subcommand exists and is
+- [x] `rundbat secret create <env> <KEY>` subcommand exists and is
       discoverable via `rundbat --help` / `rundbat secret --help`
-- [ ] Reads the value from dotconfig for the named environment
-- [ ] Names the secret `<app>_<key_lowercase>_v<YYYYMMDD>`
-- [ ] Pipes the value into `docker --context <ctx> secret create
+- [x] Reads the value from dotconfig for the named environment
+- [x] Names the secret `<app>_<key_lowercase>_v<YYYYMMDD>`
+- [x] Pipes the value into `docker --context <ctx> secret create
       <name> -` via stdin (not argv — stdin is the documented
       non-leaking channel)
-- [ ] Missing KEY produces a clear error and no Docker call is made
-- [ ] Docker failure surfaces returncode + stderr verbatim
-- [ ] Prints the created name on success
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] Missing KEY produces a clear error and no Docker call is made
+- [x] Docker failure surfaces returncode + stderr verbatim
+- [x] Prints the created name on success
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 
