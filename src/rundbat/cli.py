@@ -256,6 +256,18 @@ def _prompt_yes_no(message: str, default_yes: bool = True) -> bool:
     return ans in ("y", "yes")
 
 
+def _prompt_text(message: str, default: str) -> str:
+    """Prompt for a free-text answer with a default shown in brackets.
+
+    Returns ``default`` when the user presses Enter or stdin is closed.
+    """
+    try:
+        ans = input(f"{message} [{default}] ").strip()
+    except EOFError:
+        return default
+    return ans or default
+
+
 def cmd_deploy_init(args):
     """Set up a new deployment target."""
     from rundbat import deploy, config
@@ -310,11 +322,34 @@ def cmd_deploy_init(args):
         if swarm_probe.get("swarm_role"):
             entry["swarm_role"] = swarm_probe["swarm_role"]
         entry["deploy_mode"] = "stack"
+
+        # Sprint 009: Swarm cannot build; it pulls by image tag.
+        # When the chosen strategy builds on host (context or
+        # ssh-transfer) and no image is set, ask for an image tag
+        # so the generator can emit it. GA path is exempt — it
+        # defaults to ghcr.io/owner/<app>:latest internally.
+        strategy = entry.get("build_strategy",
+                             result.get("build_strategy", "context"))
+        if strategy in ("context", "ssh-transfer") and not entry.get("image"):
+            app_name = cfg.get("app_name", "app")
+            default_tag = f"{app_name}:{args.name}"
+            if args.json:
+                entry["image"] = default_tag
+            else:
+                entry["image"] = _prompt_text(
+                    "Image tag for this stack deployment "
+                    "(Swarm pulls this tag — it must match what "
+                    "your build produces):",
+                    default=default_tag,
+                )
+
         deployments[args.name] = entry
         cfg["deployments"] = deployments
         config.save_config(data=cfg)
         result["swarm"] = True
         result["deploy_mode"] = "stack"
+        if entry.get("image"):
+            result["image"] = entry["image"]
 
     if args.json:
         _output(result, args.json)

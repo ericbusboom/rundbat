@@ -367,7 +367,10 @@ def test_deploy_init_swarm_detected_accepts_and_writes_fields(monkeypatch):
         monkeypatch,
         {"swarm": True, "swarm_role": "manager", "reachable": True},
     )
-    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    # Two prompts: "accept swarm?" (yes) and "image tag?" (blank →
+    # accept default <app_name>:<deployment>).
+    inputs = iter(["y", ""])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
 
     from rundbat.cli import cmd_deploy_init
     cmd_deploy_init(_make_deploy_init_args())
@@ -376,6 +379,10 @@ def test_deploy_init_swarm_detected_accepts_and_writes_fields(monkeypatch):
     assert entry["swarm"] is True
     assert entry["deploy_mode"] == "stack"
     assert entry["swarm_role"] == "manager"
+    # Sprint 009: image prompt fires and default <app>:<deployment>
+    # is saved. app_name defaults to "app" since the fake cfg has
+    # no app_name key.
+    assert entry["image"] == "app:prod"
 
 
 def test_deploy_init_swarm_decline_writes_no_swarm_fields(monkeypatch):
@@ -407,6 +414,100 @@ def test_deploy_init_swarm_not_detected_no_prompt(monkeypatch):
     cmd_deploy_init(_make_deploy_init_args())
 
     assert saved == {}
+
+
+def test_deploy_init_swarm_json_mode_auto_fills_image(monkeypatch):
+    """Sprint 009: --json mode skips prompts and defaults the image tag."""
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": True, "swarm_role": "manager", "reachable": True},
+    )
+
+    def forbidden_input(prompt=""):
+        raise AssertionError("input() should not be called in --json mode")
+
+    monkeypatch.setattr("builtins.input", forbidden_input)
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args(json=True))
+
+    entry = saved["deployments"]["prod"]
+    assert entry["swarm"] is True
+    assert entry["deploy_mode"] == "stack"
+    # app_name defaults to "app" since fake cfg has no app_name.
+    assert entry["image"] == "app:prod"
+
+
+def test_deploy_init_swarm_custom_image_saved(monkeypatch):
+    """Sprint 009: user-supplied image tag is saved verbatim."""
+    saved = _patch_deploy_init_common(
+        monkeypatch,
+        {"swarm": True, "swarm_role": "manager", "reachable": True},
+    )
+    inputs = iter(["y", "myapp:v1.2.3"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    assert saved["deployments"]["prod"]["image"] == "myapp:v1.2.3"
+
+
+def test_deploy_init_swarm_github_actions_no_image_prompt(monkeypatch):
+    """Sprint 009: GA strategy is exempt from the image prompt."""
+    saved_cfg: dict = {}
+
+    def fake_init_deployment(name, host, **kwargs):
+        # GA strategy path — init_deployment already set image.
+        return {
+            "status": "ok",
+            "deployment": name,
+            "context": "prod-ctx",
+            "host": host,
+            "platform": None,
+            "build_strategy": "github-actions",
+            "ssh_key": None,
+            "deploy_mode": kwargs.get("deploy_mode"),
+        }
+
+    monkeypatch.setattr("rundbat.deploy.init_deployment",
+                        fake_init_deployment)
+    monkeypatch.setattr(
+        "rundbat.discovery.detect_swarm",
+        lambda ctx: {"swarm": True, "swarm_role": "manager",
+                     "reachable": True},
+    )
+    fake_cfg = {
+        "deployments": {
+            "prod": {
+                "docker_context": "prod-ctx",
+                "build_strategy": "github-actions",
+                "image": "ghcr.io/owner/myapp",
+            }
+        }
+    }
+    monkeypatch.setattr("rundbat.config.load_config",
+                        lambda: {k: v for k, v in fake_cfg.items()})
+    monkeypatch.setattr("rundbat.config.save_config",
+                        lambda data: saved_cfg.update(data))
+    # Only the swarm yes/no prompt should fire — not the image prompt.
+    inputs = iter(["y"])
+
+    def fake_input(prompt=""):
+        try:
+            return next(inputs)
+        except StopIteration as e:
+            raise AssertionError(
+                "image prompt should not fire for GA strategy"
+            ) from e
+
+    monkeypatch.setattr("builtins.input", fake_input)
+
+    from rundbat.cli import cmd_deploy_init
+    cmd_deploy_init(_make_deploy_init_args())
+
+    entry = saved_cfg["deployments"]["prod"]
+    assert entry["image"] == "ghcr.io/owner/myapp"
 
 
 def test_deploy_init_swarm_unreachable_warns_and_proceeds(monkeypatch, capsys):
