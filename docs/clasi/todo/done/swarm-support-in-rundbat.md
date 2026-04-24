@@ -1,8 +1,15 @@
 ---
-status: in-progress
+status: done
 sprint: 008
 tickets:
 - 008-001
+- 008-002
+- 008-003
+- 008-004
+- 008-005
+- 008-006
+- 008-007
+- 008-008
 ---
 
 # Swarm support in rundbat: detection probe, opt-in flag, and skill integration for Swarm-native Docker secrets
