@@ -701,7 +701,7 @@ def cmd_up(args):
             return
         stack = _stack_name_from(cfg, args.name, dep_cfg)
         cmd = ["docker", "--context", ctx, "stack", "deploy",
-               "-c", str(compose_file), stack]
+               "--detach=true", "-c", str(compose_file), stack]
         result = _run_cmd(cmd, verbose=verbose)
         if result.returncode != 0:
             sys.exit(result.returncode)
@@ -964,7 +964,7 @@ def cmd_restart(args):
         _run_cmd(["docker", "--context", ctx, "stack", "rm", stack],
                  verbose=verbose, capture_output=True)
         deploy_cmd = ["docker", "--context", ctx, "stack", "deploy",
-                      "-c", str(compose_file), stack]
+                      "--detach=true", "-c", str(compose_file), stack]
         result = _run_cmd(deploy_cmd, verbose=verbose)
         if result.returncode != 0:
             sys.exit(result.returncode)
