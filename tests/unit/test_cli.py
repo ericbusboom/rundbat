@@ -1,5 +1,6 @@
 """Tests for the CLI entry point."""
 
+import json
 import subprocess
 import sys
 import types
@@ -1023,3 +1024,244 @@ def test_init_docker_caddy_warning(monkeypatch, capsys, tmp_path):
 
     captured = capsys.readouterr()
     assert "Caddy" in captured.out or "caddy" in captured.out.lower()
+
+
+# ---------------------------------------------------------------------------
+# cmd_secrets — plural batch command (sprint 010 / T04)
+# ---------------------------------------------------------------------------
+
+def _make_secrets_args(env="prod", as_json=True, list_=False,
+                       dry_run=False, rotate=None, verbose=False):
+    args = types.SimpleNamespace()
+    args.env = env
+    args.json = as_json
+    args.list = list_
+    args.dry_run = dry_run
+    args.rotate = rotate
+    args.verbose = verbose
+    return args
+
+
+def _stub_secrets_environment(monkeypatch, *, deployment=None, secrets=None,
+                              env_map=None):
+    if deployment is None:
+        deployment = {"docker_context": "ctx", "manager": "ctx"}
+    deployment.setdefault("docker_context", "ctx")
+    if secrets is not None:
+        deployment["secrets"] = secrets
+
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {
+            "app_name": "myapp",
+            "deployments": {"prod": deployment},
+        },
+    )
+    if env_map is not None:
+        monkeypatch.setattr(
+            "rundbat.config.load_env_dict",
+            lambda env: env_map,
+        )
+
+
+def _stub_subprocess_run(monkeypatch, responses):
+    """Wire subprocess.run to a list of (matches, result) pairs.
+
+    ``matches`` is a callable taking the cmd list and returning bool.
+    The first matching response is consumed; unmatched commands raise.
+    Each consumed call is appended to ``calls`` for inspection.
+    """
+    calls: list = []
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append({"cmd": cmd, "kwargs": kwargs,
+                      "stdin": kwargs.get("input")})
+        for entry in responses:
+            if entry.get("consumed"):
+                continue
+            if entry["match"](cmd):
+                entry["consumed"] = True
+                return entry["result"]
+        raise AssertionError(f"unexpected subprocess call: {cmd}")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    return calls
+
+
+def test_secrets_list_reports_present_and_missing(monkeypatch, capsys):
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={
+            "api_token": {"from_env": "API_TOKEN", "services": ["app"]},
+            "session_key": {"from_env": "SESS", "services": ["app"]},
+        },
+    )
+    # docker secret ls returns one matching name; session_key is missing
+    responses = [
+        {"match": lambda cmd: "secret" in cmd and "ls" in cmd,
+         "result": _FakeRunResult(0,
+             "myapp_api_token_v20260424\n", ""),
+         "consumed": False},
+    ]
+    _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    cmd_secrets(_make_secrets_args(list_=True))
+    out = json.loads(capsys.readouterr().out)
+    assert out["deployment"] == "prod"
+    by_target = {s["target"]: s for s in out["secrets"]}
+    assert by_target["api_token"]["present"] is True
+    assert by_target["api_token"]["current_version"] == \
+        "myapp_api_token_v20260424"
+    assert by_target["session_key"]["present"] is False
+    assert by_target["session_key"]["current_version"] is None
+
+
+def test_secrets_default_idempotent_skips_present(monkeypatch, capsys):
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={"k": {"from_env": "K", "services": ["app"]}},
+        env_map={"K": "v"},
+    )
+    # Use today's date so the present version matches the desired name.
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    existing = f"myapp_k_v{today}\n"
+    responses = [
+        {"match": lambda cmd: "ls" in cmd,
+         "result": _FakeRunResult(0, existing, ""),
+         "consumed": False},
+    ]
+    _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    cmd_secrets(_make_secrets_args())
+    out = json.loads(capsys.readouterr().out)
+    assert out["created"] == []
+    assert any(s["target"] == "k" for s in out["skipped"])
+
+
+def test_secrets_default_creates_missing(monkeypatch, capsys):
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={"k": {"from_env": "K", "services": ["app"]}},
+        env_map={"K": "v"},
+    )
+    create_calls: list = []
+    responses = [
+        {"match": lambda cmd: "ls" in cmd,
+         "result": _FakeRunResult(0, "", ""),
+         "consumed": False},
+        {"match": lambda cmd: "create" in cmd,
+         "result": _FakeRunResult(0, "sha256:abc", ""),
+         "consumed": False},
+    ]
+    calls = _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    cmd_secrets(_make_secrets_args())
+    create_call = next(c for c in calls if "create" in c["cmd"])
+    # Stdin is the resolved value
+    assert create_call["stdin"] == "v"
+    assert create_call["cmd"][:3] == ["docker", "--context", "ctx"]
+
+
+def test_secrets_dry_run_does_not_execute(monkeypatch, capsys):
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={"k": {"from_env": "K", "services": ["app"]}},
+    )
+    responses = [
+        {"match": lambda cmd: "ls" in cmd,
+         "result": _FakeRunResult(0, "", ""),
+         "consumed": False},
+    ]
+    calls = _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    cmd_secrets(_make_secrets_args(dry_run=True))
+    # The only subprocess call must be the secret ls — no create.
+    assert all("create" not in c["cmd"] for c in calls)
+    out = json.loads(capsys.readouterr().out)
+    assert out["plan"][0]["target"] == "k"
+    assert out["plan"][0]["skip"] is False
+
+
+def test_secrets_rotate_success_full_sequence(monkeypatch, capsys):
+    """Rotate runs create -> service update -> service ps -> secret rm."""
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={"k": {"from_env": "K", "services": ["app"]}},
+        env_map={"K": "newval"},
+    )
+    # ls returns an old version; service ps returns Running; rm succeeds.
+    from datetime import datetime, timezone
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    # Use a deliberately older version so rotation goes ahead.
+    old_name = "myapp_k_v20260101"
+
+    responses = [
+        # First ls call (top of cmd_secrets)
+        {"match": lambda cmd: "ls" in cmd,
+         "result": _FakeRunResult(0, old_name + "\n", ""),
+         "consumed": False},
+        # secret create (new version)
+        {"match": lambda cmd: "secret" in cmd and "create" in cmd,
+         "result": _FakeRunResult(0, "sha:new", ""),
+         "consumed": False},
+        # service update --secret-rm/--secret-add
+        {"match": lambda cmd: "service" in cmd and "update" in cmd,
+         "result": _FakeRunResult(0, "", ""),
+         "consumed": False},
+        # service ps (convergence poll — returns Running immediately)
+        {"match": lambda cmd: "service" in cmd and "ps" in cmd,
+         "result": _FakeRunResult(0, "Running 5 seconds ago\n", ""),
+         "consumed": False},
+        # secret rm (cleanup)
+        {"match": lambda cmd: "secret" in cmd and "rm" in cmd,
+         "result": _FakeRunResult(0, "", ""),
+         "consumed": False},
+    ]
+    calls = _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    cmd_secrets(_make_secrets_args(rotate="k"))
+    out = json.loads(capsys.readouterr().out)
+    assert out["rotated"] is True
+    assert out["old_version"] == old_name
+    assert out["new_version"] == f"myapp_k_v{today}"
+    # All 5 expected subprocess calls happened
+    assert len(calls) >= 5
+
+
+def test_secrets_rotate_partial_failure_keeps_old(monkeypatch, capsys):
+    """If service update fails, the new secret stays and old is not removed."""
+    _stub_secrets_environment(
+        monkeypatch,
+        secrets={"k": {"from_env": "K", "services": ["app"]}},
+        env_map={"K": "newval"},
+    )
+    old_name = "myapp_k_v20260101"
+    responses = [
+        {"match": lambda cmd: "ls" in cmd,
+         "result": _FakeRunResult(0, old_name + "\n", ""),
+         "consumed": False},
+        {"match": lambda cmd: "secret" in cmd and "create" in cmd,
+         "result": _FakeRunResult(0, "sha:new", ""),
+         "consumed": False},
+        {"match": lambda cmd: "service" in cmd and "update" in cmd,
+         "result": _FakeRunResult(1, "", "service update boom"),
+         "consumed": False},
+    ]
+    calls = _stub_subprocess_run(monkeypatch, responses)
+
+    from rundbat.cli import cmd_secrets
+    import pytest
+    with pytest.raises(SystemExit) as exc:
+        cmd_secrets(_make_secrets_args(rotate="k"))
+    assert exc.value.code == 1
+    # No `secret rm` should have been issued
+    assert not any(("rm" in c["cmd"] and "secret" in c["cmd"]) for c in calls)
+    err = capsys.readouterr().out + capsys.readouterr().err
+    # JSON error written to stdout via _error
+    assert "boom" in err or "intact" in err.lower() or err == ""

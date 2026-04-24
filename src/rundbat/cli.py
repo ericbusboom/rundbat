@@ -1010,6 +1010,409 @@ def _run_cmd_stdin(cmd: list[str], *, stdin_value: str, verbose: bool = False):
     )
 
 
+# ---------------------------------------------------------------------------
+# Plural ``rundbat secrets`` — declarative batch operations (sprint 010 / T04)
+# ---------------------------------------------------------------------------
+
+def _list_swarm_secrets(ctx: str, prefix: str,
+                        verbose: bool = False) -> dict[str, str]:
+    """Return ``{target: latest_versioned_name}`` on a manager.
+
+    Parses ``docker --context <ctx> secret ls --filter name=<prefix>_``
+    output and groups by target stem, returning the
+    highest-dated-version name per target. Names are expected in the
+    form ``<prefix>_<target>_v<YYYYMMDD>``.
+
+    Targets that don't match the format are skipped silently (an
+    operator who hand-creates a secret is free to do so).
+    """
+    import subprocess
+    cmd = [
+        "docker", "--context", ctx, "secret", "ls",
+        "--filter", f"name={prefix}_", "--format", "{{.Name}}",
+    ]
+    if verbose:
+        print(f"  $ {' '.join(cmd)}", file=sys.stderr)
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"docker secret ls failed (exit {res.returncode}): "
+            f"{(res.stderr or '').strip()}"
+        )
+
+    latest: dict[str, str] = {}
+    for line in (res.stdout or "").splitlines():
+        name = line.strip()
+        if not name.startswith(f"{prefix}_"):
+            continue
+        rest = name[len(prefix) + 1:]
+        # Expect <target>_v<DATE>; split off the trailing _v* suffix.
+        if "_v" not in rest:
+            continue
+        target, _sep, version_suffix = rest.rpartition("_v")
+        if not target or not version_suffix:
+            continue
+        # Compare lexicographically — YYYYMMDD format is monotonic
+        # in lexical order, so max() works without parsing dates.
+        existing = latest.get(target)
+        if existing is None or version_suffix > existing.rpartition("_v")[2]:
+            latest[target] = name
+    return latest
+
+
+def _versioned_secret_name(app_name: str, target: str, date_stamp: str) -> str:
+    """Compute the versioned external secret name."""
+    return f"{app_name}_{target}_v{date_stamp}"
+
+
+def _wait_for_service_convergence(
+    ctx: str, services: list[str], *, timeout_s: int = 90,
+    poll_s: float = 2.0, verbose: bool = False,
+) -> None:
+    """Block until every listed service has all replicas Running.
+
+    Used after a rotation's secret-swap step. Polls
+    ``docker service ps <svc> --filter desired-state=running
+    --format {{.CurrentState}}`` and waits for every line to start
+    with ``Running``. Raises ``TimeoutError`` after ``timeout_s``.
+    """
+    import subprocess
+    import time
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        all_running = True
+        for svc in services:
+            cmd = [
+                "docker", "--context", ctx, "service", "ps", svc,
+                "--filter", "desired-state=running",
+                "--format", "{{.CurrentState}}",
+            ]
+            if verbose:
+                print(f"  $ {' '.join(cmd)}", file=sys.stderr)
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                all_running = False
+                break
+            lines = [ln.strip() for ln in (res.stdout or "").splitlines()
+                     if ln.strip()]
+            if not lines or not all(ln.startswith("Running") for ln in lines):
+                all_running = False
+                break
+        if all_running:
+            return
+        time.sleep(poll_s)
+    raise TimeoutError(
+        f"services did not converge within {timeout_s}s: {services}"
+    )
+
+
+def _resolve_secret_value(
+    env_name: str, record: dict, env_map: dict | None = None,
+) -> str:
+    """Resolve a normalized secret record to its plaintext value."""
+    from rundbat import config
+    if record["source_kind"] == "env":
+        if env_map is None:
+            env_map = config.load_env_dict(env_name)
+        if record["source"] not in env_map:
+            raise KeyError(record["source"])
+        return env_map[record["source"]]
+    return config.load_env_file(env_name, record["source"])
+
+
+def cmd_secrets(args):
+    """Batch-manage Swarm secrets declared in ``rundbat.yaml``.
+
+    Modes (mutually exclusive — the default mode is "create-missing"):
+
+    - **default**: For each declared secret, create the versioned
+      external name on the manager if it does not already exist.
+      Idempotent — running twice is a no-op the second time.
+    - **--list**: Report present/missing for each declared target.
+    - **--dry-run**: Print the docker commands the default mode
+      would run (stdin redacted), without executing.
+    - **--rotate <target>**: Create a new versioned secret for the
+      target, swap each consuming service's attachment, wait for
+      task convergence, and remove the old secret.
+    """
+    from datetime import datetime, timezone
+    from rundbat import config
+    from rundbat.config import ConfigError
+
+    verbose = getattr(args, "verbose", False)
+    as_json = getattr(args, "json", False)
+
+    list_mode = getattr(args, "list", False)
+    dry_run = getattr(args, "dry_run", False)
+    rotate_target = getattr(args, "rotate", None)
+
+    # Mutual exclusion — argparse would let combinations through.
+    modes = sum([bool(list_mode), bool(dry_run), bool(rotate_target)])
+    if modes > 1:
+        _error(
+            "--list, --dry-run, and --rotate are mutually exclusive",
+            as_json,
+        )
+        return
+
+    try:
+        cfg = config.load_config()
+    except ConfigError as e:
+        _error(str(e), as_json)
+        return
+
+    env_name = args.env
+    deployments = cfg.get("deployments", {})
+    if env_name not in deployments:
+        _error(
+            f"Deployment '{env_name}' not found in rundbat.yaml",
+            as_json,
+        )
+        return
+    dep = deployments[env_name]
+    ctx = config.manager_context_for(dep)
+    if not ctx:
+        _error(
+            f"Deployment '{env_name}' has no docker_context (or manager)",
+            as_json,
+        )
+        return
+
+    try:
+        records = config.normalize_secrets_block(dep)
+    except ConfigError as e:
+        _error(str(e), as_json)
+        return
+
+    if not records:
+        _output(
+            {"deployment": env_name, "manager_context": ctx,
+             "declared": [], "message": "No secrets declared"},
+            as_json,
+        )
+        return
+
+    app_name = cfg.get("app_name", "app")
+    date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+    try:
+        existing = _list_swarm_secrets(ctx, app_name, verbose=verbose)
+    except RuntimeError as e:
+        _error(str(e), as_json)
+        return
+
+    if list_mode:
+        report = []
+        for rec in records:
+            current = existing.get(rec["target"])
+            report.append({
+                "target": rec["target"],
+                "source_kind": rec["source_kind"],
+                "source": rec["source"],
+                "services": rec["services"],
+                "current_version": current,
+                "present": current is not None,
+            })
+        _output(
+            {"deployment": env_name, "manager_context": ctx,
+             "secrets": report},
+            as_json,
+        )
+        return
+
+    if rotate_target:
+        rec = next((r for r in records if r["target"] == rotate_target), None)
+        if rec is None:
+            _error(
+                f"Target '{rotate_target}' not declared in deployment "
+                f"'{env_name}'",
+                as_json,
+            )
+            return
+        old_name = existing.get(rotate_target)
+        new_name = _versioned_secret_name(app_name, rotate_target, date_stamp)
+        if old_name == new_name:
+            # Force a rotation by appending an incrementing suffix —
+            # operators rarely rotate twice the same UTC day, so a
+            # plain conflict here likely means an accidental re-run.
+            _error(
+                f"Latest version for '{rotate_target}' is already "
+                f"'{new_name}'. Refusing to rotate to the same name.",
+                as_json,
+            )
+            return
+
+        # Step 1: create the new secret.
+        try:
+            value = _resolve_secret_value(env_name, rec)
+        except (KeyError, ConfigError) as e:
+            _error(
+                f"Failed to resolve value for '{rotate_target}': {e}",
+                as_json,
+            )
+            return
+        create_cmd = ["docker", "--context", ctx, "secret", "create",
+                      new_name, "-"]
+        res = _run_cmd_stdin(create_cmd, stdin_value=value, verbose=verbose)
+        if res.returncode != 0:
+            _error(
+                f"docker secret create failed (exit {res.returncode}): "
+                f"{(res.stderr or '').strip()}",
+                as_json,
+            )
+            return
+
+        # Step 2: swap the attachment on each consuming service.
+        stack = _stack_name_from(cfg, env_name, dep)
+        services_full = [f"{stack}_{svc}" for svc in rec["services"]]
+        if old_name:
+            for full_svc in services_full:
+                update_cmd = [
+                    "docker", "--context", ctx, "service", "update",
+                    "--secret-rm", old_name,
+                    "--secret-add",
+                    f"source={new_name},target={rotate_target}",
+                    full_svc,
+                ]
+                res = _run_cmd(update_cmd, verbose=verbose,
+                               capture_output=True, text=True)
+                if res.returncode != 0:
+                    _error(
+                        f"docker service update failed for {full_svc} "
+                        f"(exit {res.returncode}): "
+                        f"{(res.stderr or '').strip()}. New secret "
+                        f"'{new_name}' was created — old secret "
+                        f"'{old_name}' is intact.",
+                        as_json,
+                    )
+                    return
+
+            # Step 3: wait for convergence.
+            try:
+                _wait_for_service_convergence(
+                    ctx, services_full, verbose=verbose,
+                )
+            except TimeoutError as e:
+                _error(
+                    f"{e}. New secret '{new_name}' is in place; old "
+                    f"secret '{old_name}' has not been removed.",
+                    as_json,
+                )
+                return
+
+            # Step 4: remove the old secret.
+            rm_cmd = ["docker", "--context", ctx, "secret", "rm", old_name]
+            res = _run_cmd(rm_cmd, verbose=verbose, capture_output=True,
+                           text=True)
+            if res.returncode != 0:
+                # Non-fatal — the rotation succeeded; just couldn't
+                # clean up. Surface it as a warning in JSON form.
+                _output(
+                    {"target": rotate_target,
+                     "deployment": env_name,
+                     "manager_context": ctx,
+                     "new_version": new_name,
+                     "old_version": old_name,
+                     "warning": f"failed to remove old secret: "
+                                f"{(res.stderr or '').strip()}"},
+                    as_json,
+                )
+                return
+
+        _output(
+            {"target": rotate_target,
+             "deployment": env_name,
+             "manager_context": ctx,
+             "new_version": new_name,
+             "old_version": old_name,
+             "rotated": True},
+            as_json,
+        )
+        return
+
+    # Default mode: idempotent batch create.
+    plan = []
+    env_map_cache: dict | None = None
+    for rec in records:
+        desired = _versioned_secret_name(app_name, rec["target"], date_stamp)
+        present = existing.get(rec["target"]) == desired
+        plan.append({
+            "target": rec["target"],
+            "name": desired,
+            "current": existing.get(rec["target"]),
+            "skip": present,
+            "record": rec,
+        })
+
+    if dry_run:
+        steps = []
+        for entry in plan:
+            if entry["skip"]:
+                steps.append({
+                    "target": entry["target"],
+                    "skip": True,
+                    "reason": f"already at {entry['name']}",
+                })
+            else:
+                steps.append({
+                    "target": entry["target"],
+                    "skip": False,
+                    "command": [
+                        "docker", "--context", ctx, "secret", "create",
+                        entry["name"], "-",
+                    ],
+                    "stdin": "(redacted)",
+                })
+        _output(
+            {"deployment": env_name, "manager_context": ctx,
+             "plan": steps},
+            as_json,
+        )
+        return
+
+    created: list[dict] = []
+    skipped: list[dict] = []
+    for entry in plan:
+        if entry["skip"]:
+            skipped.append({"target": entry["target"], "name": entry["name"]})
+            continue
+        rec = entry["record"]
+        try:
+            if rec["source_kind"] == "env":
+                if env_map_cache is None:
+                    env_map_cache = config.load_env_dict(env_name)
+                value = _resolve_secret_value(
+                    env_name, rec, env_map=env_map_cache,
+                )
+            else:
+                value = _resolve_secret_value(env_name, rec)
+        except (KeyError, ConfigError) as e:
+            _error(
+                f"Failed to resolve value for '{entry['target']}': {e}",
+                as_json,
+            )
+            return
+        cmd = ["docker", "--context", ctx, "secret", "create",
+               entry["name"], "-"]
+        res = _run_cmd_stdin(cmd, stdin_value=value, verbose=verbose)
+        if res.returncode != 0:
+            _error(
+                f"docker secret create failed for '{entry['target']}' "
+                f"(exit {res.returncode}): "
+                f"{(res.stderr or '').strip()}",
+                as_json,
+            )
+            return
+        created.append({"target": entry["target"], "name": entry["name"]})
+
+    _output(
+        {"deployment": env_name, "manager_context": ctx,
+         "created": created, "skipped": skipped},
+        as_json,
+    )
+
+
 def cmd_restart(args):
     """Restart a deployment: down then up. With --build: build, down, up."""
     verbose = getattr(args, "verbose", False)
@@ -1515,6 +1918,34 @@ instructions on using this tool.""",
         secret_parser.print_help()
         sys.exit(0)
     secret_parser.set_defaults(func=_secret_default)
+
+    # rundbat secrets <env> — plural batch command (sprint 010 / T04)
+    secrets_parser = subparsers.add_parser(
+        "secrets",
+        help="Batch-manage Swarm secrets declared in rundbat.yaml",
+    )
+    secrets_parser.add_argument(
+        "env", help="Deployment name (from rundbat.yaml)",
+    )
+    secrets_parser.add_argument(
+        "--list", action="store_true", default=False,
+        help="Report present-vs-missing for each declared secret",
+    )
+    secrets_parser.add_argument(
+        "--dry-run", dest="dry_run", action="store_true", default=False,
+        help="Print the docker commands that would run, with stdin redacted",
+    )
+    secrets_parser.add_argument(
+        "--rotate", default=None, metavar="TARGET",
+        help="Rotate one declared secret: create new version, swap "
+             "attachments, wait for convergence, remove old version",
+    )
+    secrets_parser.add_argument(
+        "-v", "--verbose", action="store_true", default=False,
+        help="Print docker commands as they run",
+    )
+    _add_json_flag(secrets_parser)
+    secrets_parser.set_defaults(func=cmd_secrets)
 
     args = parser.parse_args()
 

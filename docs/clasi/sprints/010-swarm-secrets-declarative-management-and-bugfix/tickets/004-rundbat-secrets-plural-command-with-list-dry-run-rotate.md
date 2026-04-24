@@ -1,11 +1,13 @@
 ---
-id: "004"
-title: "rundbat secrets plural command with list dry-run rotate"
-status: todo
-use-cases: [SUC-004]
-depends-on: ['003']
-github-issue: ""
-todo: ""
+id: '004'
+title: rundbat secrets plural command with list dry-run rotate
+status: in-progress
+use-cases:
+- SUC-004
+depends-on:
+- '003'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -89,19 +91,19 @@ in T05).
 
 ## Acceptance Criteria
 
-- [ ] `rundbat secrets <env>` exists as a top-level CLI subcommand
-- [ ] Default action is idempotent — running it twice creates each
+- [x] `rundbat secrets <env>` exists as a top-level CLI subcommand
+- [x] Default action is idempotent — running it twice creates each
       secret only once
-- [ ] `--list` reports each declared target's status
+- [x] `--list` reports each declared target's status
       (present/missing) with `--json` machine-readable form
-- [ ] `--dry-run` never runs `docker secret create`
-- [ ] `--rotate <target>` performs create → swap → wait → remove
+- [x] `--dry-run` never runs `docker secret create`
+- [x] `--rotate <target>` performs create → swap → wait → remove
       and exits non-zero with a clear message on partial failure
-- [ ] Tests cover: list logic against mocked `docker secret ls`,
+- [x] Tests cover: list logic against mocked `docker secret ls`,
       idempotent-create skip behavior, dry-run no-execute,
       rotation success path, rotation partial-failure path
-- [ ] Version bumped via `clasi version bump`
-- [ ] All tests pass; commit references T04
+- [x] Version bumped via `clasi version bump`
+- [x] All tests pass; commit references T04
 
 ## Testing
 

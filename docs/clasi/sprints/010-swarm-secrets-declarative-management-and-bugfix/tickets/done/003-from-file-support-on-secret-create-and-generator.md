@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: From-file support on secret create and generator
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on:
