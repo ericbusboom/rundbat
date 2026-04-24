@@ -305,3 +305,26 @@
 20:23:25Z role-guard       0 no-path      tool_name=Edit agent_type=team-lead agent_id=a6cc875ed9c3fe28f session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
 20:23:30Z role-guard       0 no-path      tool_name=Edit agent_type=team-lead agent_id=a6cc875ed9c3fe28f session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
 20:25:44Z sub-stop         0 logged       agent_type=team-lead agent_id=a6cc875ed9c3fe28f session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:39:51Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:45:18Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:54:33Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:54:44Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:54:52Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:55:04Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:55:28Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:56:15Z role-guard       0 no-path      tool_name=Edit session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+20:57:10Z role-guard       0 no-path      tool_name=Write session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:00:26Z sub-start        0 logged       agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:00:40Z mcp-guard        2 blk-mcp      tool_name=mcp__clasi__create_sprint agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:00:53Z mcp-guard        0 oop-bypass   tool_name=mcp__clasi__create_sprint agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:05Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:22Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:37Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:56Z mcp-guard        0 oop-bypass   tool_name=mcp__clasi__create_ticket agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:57Z mcp-guard        0 oop-bypass   tool_name=mcp__clasi__create_ticket agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:58Z mcp-guard        0 oop-bypass   tool_name=mcp__clasi__create_ticket agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:02:59Z mcp-guard        0 oop-bypass   tool_name=mcp__clasi__create_ticket agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:04:22Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:04:35Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:04:42Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
+21:04:52Z role-guard       0 no-path      tool_name=Write agent_type=team-lead agent_id=abc4cfeb29019d3de session_id=7700e6ba-6edd-46aa-8f69-98206b9e5a3a
