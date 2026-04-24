@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: Manager field and skill doc refresh
-status: in-progress
+status: done
 use-cases:
 - SUC-005
 depends-on:

@@ -1,8 +1,11 @@
 ---
-status: in-progress
+status: done
 sprint: '010'
 tickets:
-- 010-002
+- '002'
+- '003'
+- '004'
+- '005'
 ---
 
 # Feature request for `rundbat`: native swarm-secret management
