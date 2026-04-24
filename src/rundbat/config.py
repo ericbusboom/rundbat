@@ -133,6 +133,18 @@ def load_env(env: str) -> str:
     return _run_dotconfig(["load", "-d", env, "--stdout"])
 
 
+def load_env_file(env: str, filename: str) -> str:
+    """Decrypt and return the contents of a dotconfig ``--file`` entry.
+
+    Used by the file-backed secret path: pipe the returned string into
+    ``docker secret create`` on stdin so plaintext never lands on
+    disk on the manager.
+    """
+    return _run_dotconfig(
+        ["load", "-d", env, "--file", filename, "--stdout"]
+    )
+
+
 def normalize_secrets_block(
     deployment_cfg: dict,
     *,

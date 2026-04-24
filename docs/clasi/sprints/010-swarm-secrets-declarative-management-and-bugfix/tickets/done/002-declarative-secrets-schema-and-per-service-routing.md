@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Declarative secrets schema and per-service routing
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:

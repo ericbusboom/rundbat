@@ -1,11 +1,13 @@
 ---
-id: "003"
-title: "From-file support on secret create and generator"
-status: todo
-use-cases: [SUC-003]
-depends-on: ['002']
-github-issue: ""
-todo: ""
+id: '003'
+title: From-file support on secret create and generator
+status: in-progress
+use-cases:
+- SUC-003
+depends-on:
+- '002'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -56,23 +58,23 @@ introduced in T02 with `source_kind == "file"`. The generator:
 
 ## Acceptance Criteria
 
-- [ ] `rundbat secret create <env> --from-file <path>
+- [x] `rundbat secret create <env> --from-file <path>
       [--target-name <name>]` succeeds end-to-end with mocked
       dotconfig + docker
-- [ ] `--from-file` and the positional `<KEY>` are mutually
+- [x] `--from-file` and the positional `<KEY>` are mutually
       exclusive (clear error message)
-- [ ] `--target-name` defaults to the file stem when `--from-file`
+- [x] `--target-name` defaults to the file stem when `--from-file`
       is set
-- [ ] `config.load_env_file(env, filename)` exists and is unit-tested
-- [ ] Schema validation accepts `from_file: <path>` per-target and
+- [x] `config.load_env_file(env, filename)` exists and is unit-tested
+- [x] Schema validation accepts `from_file: <path>` per-target and
       rejects `from_file` + `from_env` together (the validation
       branch was scaffolded in T02; this ticket fills it in)
-- [ ] Generator emits per-service attachments for `from_file`
+- [x] Generator emits per-service attachments for `from_file`
       entries with no `*_FILE` env var
-- [ ] New tests cover: singular CLI happy path, schema validation
+- [x] New tests cover: singular CLI happy path, schema validation
       for file form, generator emission for file form
-- [ ] Version bumped via `clasi version bump`
-- [ ] All tests pass; commit references T03
+- [x] Version bumped via `clasi version bump`
+- [x] All tests pass; commit references T03
 
 ## Testing
 

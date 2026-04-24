@@ -1013,6 +1013,32 @@ class TestGenerateComposeSwarmDeclarativeSecrets:
                 "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
             )
 
+    def test_from_file_emits_attachment_without_env_var(self):
+        """File-backed secrets attach but don't auto-emit *_FILE env vars."""
+        cfg = _swarm_deploy_cfg(secrets={
+            "meetup_private_key": {
+                "from_file": "stu1884.pem",
+                "services": ["app"],
+            },
+        })
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        # Top-level external entry exists.
+        assert data["secrets"] == {
+            "myapp_meetup_private_key": {"external": True},
+        }
+        # Service-level attachment exists.
+        app = data["services"]["app"]
+        assert app["secrets"] == [
+            {"source": "myapp_meetup_private_key",
+             "target": "meetup_private_key"},
+        ]
+        # No auto-emitted *_FILE env var for file-backed secrets.
+        env = app.get("environment", {}) or {}
+        assert not any(k.endswith("_FILE") for k in env)
+
 
 class TestGenerateJustfileStackMode:
     def test_stack_mode_recipes(self):

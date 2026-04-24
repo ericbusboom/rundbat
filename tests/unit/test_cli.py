@@ -705,11 +705,14 @@ def test_effective_deploy_mode_helper():
 # cmd_secret_create (T07)
 # ---------------------------------------------------------------------------
 
-def _make_secret_args(env="prod", key="POSTGRES_PASSWORD", as_json=False):
+def _make_secret_args(env="prod", key="POSTGRES_PASSWORD", as_json=False,
+                      from_file=None, target_name=None):
     args = types.SimpleNamespace()
     args.env = env
     args.key = key
     args.json = as_json
+    args.from_file = from_file
+    args.target_name = target_name
     return args
 
 
@@ -816,6 +819,145 @@ def test_secret_create_missing_key_errors_before_docker(monkeypatch):
         cmd_secret_create(_make_secret_args(key="POSTGRES_PASSWORD"))
     assert exc.value.code == 1
     assert docker_called == []  # no docker call attempted
+
+
+def test_secret_create_from_file_pipes_decrypted_content(monkeypatch):
+    """--from-file pipes the decrypted file content into docker stdin."""
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {"app_name": "myapp",
+                 "deployments": {"prod": {"docker_context": "ctx"}}},
+    )
+    file_content = "-----BEGIN PRIVATE KEY-----\nABC123\n-----END PRIVATE KEY-----\n"
+
+    captured_load: dict = {}
+
+    def fake_load_env_file(env, filename):
+        captured_load["env"] = env
+        captured_load["filename"] = filename
+        return file_content
+
+    monkeypatch.setattr("rundbat.config.load_env_file", fake_load_env_file)
+
+    captured: dict = {}
+
+    def fake_run(cmd, *, input, capture_output, text):
+        captured["cmd"] = cmd
+        captured["stdin"] = input
+        return _FakeRunResult(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    from rundbat.cli import cmd_secret_create
+    args = _make_secret_args(
+        key=None, from_file="stu1884.pem", target_name="meetup_private_key",
+    )
+    cmd_secret_create(args)
+
+    assert captured_load == {"env": "prod", "filename": "stu1884.pem"}
+    assert captured["stdin"] == file_content
+    # Secret name uses the explicit target-name, not the file stem.
+    name = captured["cmd"][-2]
+    assert name.startswith("myapp_meetup_private_key_v")
+
+
+def test_secret_create_from_file_target_name_defaults_to_stem(monkeypatch):
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {"app_name": "myapp",
+                 "deployments": {"prod": {"docker_context": "ctx"}}},
+    )
+    monkeypatch.setattr(
+        "rundbat.config.load_env_file",
+        lambda env, filename: "data",
+    )
+    captured: dict = {}
+
+    def fake_run(cmd, *, input, capture_output, text):
+        captured["cmd"] = cmd
+        return _FakeRunResult(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    from rundbat.cli import cmd_secret_create
+    cmd_secret_create(
+        _make_secret_args(key=None, from_file="stu1884.pem")
+    )
+    name = captured["cmd"][-2]
+    # File stem 'stu1884' becomes the target.
+    assert "_stu1884_v" in name
+
+
+def test_secret_create_rejects_both_key_and_from_file(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {"app_name": "myapp",
+                 "deployments": {"prod": {"docker_context": "ctx"}}},
+    )
+
+    docker_called: list = []
+
+    def fake_run(cmd, *, input, capture_output, text):
+        docker_called.append(cmd)
+        return _FakeRunResult(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    from rundbat.cli import cmd_secret_create
+    import pytest
+    with pytest.raises(SystemExit):
+        cmd_secret_create(_make_secret_args(
+            key="POSTGRES_PASSWORD", from_file="x.pem",
+        ))
+    err = capsys.readouterr().err
+    assert "either" in err.lower() or "not both" in err.lower()
+    assert docker_called == []
+
+
+def test_secret_create_rejects_no_source(monkeypatch, capsys):
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {"app_name": "myapp",
+                 "deployments": {"prod": {"docker_context": "ctx"}}},
+    )
+
+    monkeypatch.setattr("subprocess.run",
+                        lambda *a, **kw: _FakeRunResult(0))
+
+    from rundbat.cli import cmd_secret_create
+    import pytest
+    with pytest.raises(SystemExit):
+        cmd_secret_create(_make_secret_args(key=None))
+    err = capsys.readouterr().err
+    assert "KEY" in err or "from-file" in err
+
+
+def test_secret_create_uses_manager_context_when_set(monkeypatch):
+    """When manager: is set on the deployment, secret create routes there."""
+    monkeypatch.setattr(
+        "rundbat.config.load_config",
+        lambda: {
+            "app_name": "myapp",
+            "deployments": {"prod": {
+                "docker_context": "swarm-worker",
+                "manager": "swarm-mgr",
+            }},
+        },
+    )
+    monkeypatch.setattr("rundbat.config.load_env_dict",
+                        lambda env: {"K": "v"})
+    captured: dict = {}
+
+    def fake_run(cmd, *, input, capture_output, text):
+        captured["cmd"] = cmd
+        return _FakeRunResult(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    from rundbat.cli import cmd_secret_create
+    cmd_secret_create(_make_secret_args(key="K"))
+    # docker --context <manager> ...
+    assert captured["cmd"][:3] == ["docker", "--context", "swarm-mgr"]
 
 
 def test_secret_create_docker_failure_surfaced(monkeypatch, capsys):

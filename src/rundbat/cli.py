@@ -883,14 +883,23 @@ def _parse_env_text(text: str) -> dict:
 def cmd_secret_create(args):
     """Create (or rotate) a Swarm secret from a dotconfig-backed value.
 
-    Usage: ``rundbat secret create <env> <KEY>``
+    Two source modes:
 
-    Reads ``KEY`` from the deployment's dotconfig env bundle, computes
-    the versioned Swarm secret name (``<app>_<key_lc>_v<YYYYMMDD>``),
-    and pipes the value into ``docker --context <ctx> secret create
-    <name> -`` on stdin.
+    - **Env-backed** (default): ``rundbat secret create <env> <KEY>``
+      reads ``KEY`` from the deployment's dotconfig env bundle and
+      creates a secret named ``<app>_<key_lc>_v<YYYYMMDD>``.
+    - **File-backed**: ``rundbat secret create <env> --from-file <path>
+      [--target-name <name>]`` decrypts a dotconfig ``--file`` entry
+      and creates a secret named ``<app>_<target>_v<YYYYMMDD>`` where
+      ``target`` defaults to the file stem.
+
+    The plaintext value is piped to ``docker --context <ctx> secret
+    create <name> -`` on stdin — it never lands in argv or on disk.
+    The target context is the deployment's manager context (defaults
+    to ``docker_context``).
     """
     from datetime import datetime, timezone
+    from pathlib import Path as _Path
     from rundbat import config
     from rundbat.config import ConfigError
 
@@ -907,27 +916,68 @@ def cmd_secret_create(args):
         return
 
     dep = deployments[env_name]
-    ctx = dep.get("docker_context")
+    ctx = config.manager_context_for(dep)
     if not ctx:
-        _error(f"Deployment '{env_name}' has no docker_context", args.json)
+        _error(
+            f"Deployment '{env_name}' has no docker_context (or manager)",
+            args.json,
+        )
         return
 
-    key = args.key
-    try:
-        env_map = config.load_env_dict(env_name)
-    except ConfigError as e:
-        _error(f"Failed to load dotconfig env for '{env_name}': {e}", args.json)
+    from_file = getattr(args, "from_file", None)
+    key = getattr(args, "key", None)
+
+    if from_file and key:
+        _error(
+            "Pass either KEY (positional) or --from-file, not both",
+            args.json,
+        )
+        return
+    if not from_file and not key:
+        _error(
+            "Provide a KEY (positional) or --from-file <path>",
+            args.json,
+        )
         return
 
-    if key not in env_map:
-        _error(f"Key '{key}' not found in dotconfig env for '{env_name}'", args.json)
-        return
-
-    value = env_map[key]
+    if from_file:
+        target_name = getattr(args, "target_name", None) or _Path(from_file).stem
+        if not target_name:
+            _error(
+                "--target-name required when --from-file has no stem",
+                args.json,
+            )
+            return
+        try:
+            value = config.load_env_file(env_name, from_file)
+        except ConfigError as e:
+            _error(
+                f"Failed to load dotconfig --file '{from_file}' for "
+                f"'{env_name}': {e}",
+                args.json,
+            )
+            return
+    else:
+        try:
+            env_map = config.load_env_dict(env_name)
+        except ConfigError as e:
+            _error(
+                f"Failed to load dotconfig env for '{env_name}': {e}",
+                args.json,
+            )
+            return
+        if key not in env_map:
+            _error(
+                f"Key '{key}' not found in dotconfig env for '{env_name}'",
+                args.json,
+            )
+            return
+        value = env_map[key]
+        target_name = key.lower()
 
     app_name = cfg.get("app_name", "app")
     date_stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
-    secret_name = f"{app_name}_{key.lower()}_v{date_stamp}"
+    secret_name = f"{app_name}_{target_name}_v{date_stamp}"
 
     cmd = ["docker", "--context", ctx, "secret", "create", secret_name, "-"]
     result = _run_cmd_stdin(cmd, stdin_value=value,
@@ -1442,7 +1492,21 @@ instructions on using this tool.""",
         "env", help="Deployment name (from rundbat.yaml)",
     )
     secret_create_parser.add_argument(
-        "key", help="Secret key name as stored in dotconfig (e.g., POSTGRES_PASSWORD)",
+        "key", nargs="?", default=None,
+        help="Secret key as stored in dotconfig (e.g., POSTGRES_PASSWORD). "
+             "Mutually exclusive with --from-file.",
+    )
+    secret_create_parser.add_argument(
+        "--from-file", dest="from_file", default=None,
+        help="Source the secret from a dotconfig --file entry "
+             "(e.g., a SOPS-encrypted PEM key). Mutually exclusive "
+             "with the positional KEY.",
+    )
+    secret_create_parser.add_argument(
+        "--target-name", dest="target_name", default=None,
+        help="Override the logical target name. Defaults to KEY "
+             "(lowercased) for env-backed secrets and to the file "
+             "stem for --from-file secrets.",
     )
     _add_json_flag(secret_create_parser)
     secret_create_parser.set_defaults(func=cmd_secret_create)
