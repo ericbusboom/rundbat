@@ -623,6 +623,30 @@ class TestGenerateArtifacts:
         assert (tmp_path / "docker" / "entrypoint.sh").exists()
         assert (tmp_path / "docker" / "Justfile").exists()
 
+    def test_stack_mode_generates_compose(self, tmp_path):
+        """Stack-mode deployments must produce a compose file (docker stack deploy needs one)."""
+        (tmp_path / "package.json").write_text(
+            json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
+        )
+        cfg = {
+            "app_name": "myapp",
+            "deployments": {
+                "prod": {
+                    "docker_context": "swarm-mgr",
+                    "build_strategy": "github-actions",
+                    "image": "ghcr.io/owner/myapp",
+                    "deploy_mode": "stack",
+                    "swarm": True,
+                },
+            },
+        }
+        generate_artifacts(tmp_path, cfg)
+        compose = tmp_path / "docker" / "docker-compose.prod.yml"
+        assert compose.exists(), "stack mode must emit a compose file"
+        content = compose.read_text()
+        assert "docker stack deploy" in content  # header comment
+        assert "deploy:" in content
+
     def test_single_deployment_flag(self, tmp_path):
         (tmp_path / "package.json").write_text(
             json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
