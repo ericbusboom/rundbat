@@ -125,13 +125,54 @@ class TestGenerateDockerfile:
         assert "TODO" in df
 
     def test_astro(self):
-        """Astro Dockerfile has 3 stages ending in nginx:alpine on port 8080."""
+        """Astro Dockerfile has 3 stages ending in nginx-unprivileged on port 8080."""
         fw = {"language": "node", "framework": "astro", "entry_point": "nginx"}
         result = generate_dockerfile(fw)
-        assert "nginx:alpine" in result
+        assert "nginx-unprivileged:alpine" in result
         assert "EXPOSE 8080" in result
         assert "COPY --from=build /app/dist" in result
         assert "node:20-alpine" in result
+
+    # --- Best-practices assertions (Docker Build Best Practices guide) ---
+
+    def test_node_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "express"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "--mount=type=cache,target=/root/.npm" in df
+        assert "USER node" in df
+        assert "HEALTHCHECK" in df
+        assert "COPY --chown=node:node --from=builder" in df
+
+    def test_next_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "next"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "USER node" in df
+        assert "COPY --chown=node:node --from=builder /app/.next" in df
+        assert "HEALTHCHECK" in df
+
+    def test_python_multi_stage(self):
+        df = generate_dockerfile({"language": "python", "framework": "flask"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "FROM python:3.12-slim AS builder" in df
+        assert "/opt/venv" in df
+        assert "--mount=type=cache,target=/root/.cache/pip" in df
+        assert "USER appuser" in df
+        assert "HEALTHCHECK" in df
+        assert "COPY --chown=appuser" in df
+
+    def test_django_extra_step_runs_before_user_switch(self):
+        """collectstatic must run as root (before USER appuser)."""
+        df = generate_dockerfile({"language": "python", "framework": "django"})
+        collectstatic_idx = df.find("collectstatic")
+        user_idx = df.find("USER appuser")
+        assert collectstatic_idx != -1 and user_idx != -1
+        assert collectstatic_idx < user_idx
+
+    def test_astro_has_best_practices(self):
+        df = generate_dockerfile({"language": "node", "framework": "astro"})
+        assert "# syntax=docker/dockerfile:1" in df
+        assert "--mount=type=cache,target=/root/.npm" in df
+        assert "HEALTHCHECK" in df
 
 
 # ---------------------------------------------------------------------------

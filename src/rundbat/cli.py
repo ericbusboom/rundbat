@@ -742,6 +742,153 @@ def _add_json_flag(parser):
     )
 
 
+_AGENT_INSTRUCTIONS_HEAD = """\
+rundbat — Instructions for Agents
+=================================
+
+What rundbat is
+---------------
+rundbat is a CLI that manages Docker-based deployment environments for
+web applications. It is the authoritative tool for anything involving:
+
+  - Docker Compose lifecycle (build, up, down, restart, logs)
+  - Deployment to remote Docker hosts (via Docker contexts or SSH)
+  - Per-deployment environment/config, including SOPS-encrypted secrets
+  - Generating the project's docker/ directory (Dockerfile, compose files)
+  - Database provisioning and connection strings
+
+If a task mentions "deployment", "Docker", "compose", "env vars", "secrets",
+or "connection string", reach for rundbat first. Do not hand-edit
+docker-compose files or config/ files — regenerate or go through dotconfig.
+
+Core workflow
+-------------
+1. `rundbat init` once per project — creates config/rundbat.yaml, a .gitignore
+   rule for per-deployment env files, inserts a rundbat block into CLAUDE.md,
+   and installs reference docs into .claude/.
+2. `rundbat generate` — regenerates docker/ artifacts from rundbat.yaml.
+   Re-run any time you edit rundbat.yaml or add a deployment.
+3. `rundbat up <name>` / `down <name>` / `restart <name>` — local lifecycle.
+   `up` automatically checks out env from dotconfig into docker/.<name>.env.
+4. `rundbat deploy-init <name> --host ssh://...` — register a remote target.
+5. `rundbat deploy <name>` — deploy to the remote (context / ssh-transfer /
+   github-actions strategy, configured per deployment).
+
+Deployment names (dev, test, prod, or custom) are the primary argument to
+almost every subcommand. They must exist under `deployments:` in rundbat.yaml.
+
+Configuration model
+-------------------
+All config goes through dotconfig — never edit config/ files by hand.
+
+  config/
+    rundbat.yaml         # App name, container templates, deployments map
+    <env>/public.env     # Non-secret env vars
+    <env>/secrets.env    # SOPS-encrypted secrets
+
+Read merged config:  dotconfig load -d <env> --json --flat -S
+Write secrets:       dotconfig set -d <env> KEY=VALUE
+rundbat `up` and `restart` check out the merged env into
+docker/.<name>.env automatically (see `env_source: dotconfig`).
+
+Build strategies (set per-deployment in rundbat.yaml):
+  context         — build on the remote Docker context (default)
+  ssh-transfer    — build locally with --platform, rsync images over SSH
+  github-actions  — CI builds to GHCR, remote pulls
+"""
+
+
+_AGENT_INSTRUCTIONS_TAIL = """\
+Rules for agents
+----------------
+  - Do not edit config/ files directly. Use dotconfig.
+  - Do not hand-edit docker/docker-compose.*.yml. Edit rundbat.yaml and
+    re-run `rundbat generate`.
+  - Do not echo secret values in output or commit them.
+  - Most commands accept `--json` for parseable output.
+  - Pass `-v` / `--verbose` to see the shell commands rundbat runs.
+
+Subcommand reference (compiled from each `rundbat <cmd> --help`)
+----------------------------------------------------------------
+"""
+
+
+_SKILL_DESCRIPTIONS = {
+    "astro-docker.md": "Dockerizing Astro projects",
+    "deploy-init.md": "walk through setting up a remote target",
+    "deploy-setup.md": "guided remote deploy configuration",
+    "dev-database.md": "provisioning a local dev DB",
+    "diagnose.md": "triaging broken containers / deploys",
+    "docker-best-practices.md": "Docker Build Best Practices checklist and what rundbat enforces",
+    "docker-secrets.md": "decision framework for Docker secrets (Swarm vs plain vs build)",
+    "docker-secrets-swarm.md": "Swarm runtime secrets — create, attach, rotate, version",
+    "docker-secrets-compose.md": "plain-Docker file-mounted secrets and migration from env_file",
+    "docker-secrets-build.md": "BuildKit `--secret` for build-time credentials",
+    "generate.md": "regenerating docker/ artifacts",
+    "github-deploy.md": "github-actions build strategy",
+    "init-docker.md": "initial docker/ scaffolding",
+    "manage-secrets.md": "adding, rotating, reading secrets (dotconfig — source of truth)",
+}
+
+
+def _installed_integration_section() -> str:
+    """Build the 'Installed Claude integration' section from the install map.
+
+    Paths are pulled from installer.installed_paths_by_kind() so they always
+    match what `rundbat init` actually writes to disk.
+    """
+    from rundbat.installer import installed_paths_by_kind
+
+    groups = installed_paths_by_kind()
+    lines = [
+        "Installed Claude integration",
+        "----------------------------",
+        "`rundbat init` installs reference docs into the project's .claude/",
+        "directory and inserts a rundbat block into CLAUDE.md. The files below",
+        "are on disk right now — read them for deeper, task-specific guidance.",
+        "",
+    ]
+
+    if groups["rules"]:
+        lines.append("Rules:")
+        for p in groups["rules"]:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    if groups["agents"]:
+        lines.append("Agents:")
+        for p in groups["agents"]:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    if groups["skills"]:
+        lines.append("Skills (task-specific runbooks):")
+        for p in groups["skills"]:
+            name = p.rsplit("/", 1)[-1]
+            desc = _SKILL_DESCRIPTIONS.get(name)
+            if desc:
+                lines.append(f"  {p} — {desc}")
+            else:
+                lines.append(f"  {p}")
+        lines.append("")
+
+    lines.append("When in doubt about a specific task, read the matching skill file first.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _print_instructions(subparsers_action) -> None:
+    """Print detailed agent instructions, then every subcommand's help."""
+    print(_AGENT_INSTRUCTIONS_HEAD)
+    print(_installed_integration_section())
+    print(_AGENT_INSTRUCTIONS_TAIL)
+    for name in sorted(subparsers_action.choices.keys()):
+        subparser = subparsers_action.choices[name]
+        print(f"----- rundbat {name} -----")
+        print()
+        print(subparser.format_help())
+
+
 def main():
     """CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -757,7 +904,10 @@ Commands:
   rundbat restart <name>     Restart (down + up; --build to rebuild first)
   rundbat logs <name>        Tail logs from a deployment
   rundbat deploy <name>      Deploy to a remote host
-  rundbat deploy-init <name> Set up a deployment target""",
+  rundbat deploy-init <name> Set up a deployment target
+
+Attention agents: For agents, run `rundbat --instructions` to get detailed
+instructions on using this tool.""",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -766,6 +916,10 @@ Commands:
     parser.add_argument(
         "-v", "--verbose", action="store_true", default=False,
         help="Print shell commands before executing them",
+    )
+    parser.add_argument(
+        "--instructions", action="store_true", default=False,
+        help="Print detailed instructions for agents (includes all subcommand help)",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -942,6 +1096,10 @@ Commands:
     probe_parser.set_defaults(func=cmd_probe)
 
     args = parser.parse_args()
+
+    if getattr(args, "instructions", False):
+        _print_instructions(subparsers)
+        sys.exit(0)
 
     if not args.command:
         parser.print_help()

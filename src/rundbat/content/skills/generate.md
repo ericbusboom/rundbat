@@ -43,6 +43,9 @@ Re-run `rundbat generate` after:
 - Changing services, build strategy, or deploy mode
 - Changing hostnames or Caddy settings
 - Updating framework dependencies (e.g., switching from Express to Astro)
+- Upgrading rundbat itself — new template improvements (hardened
+  defaults, additional best-practice directives) ship via the
+  generators, so a regenerate is how you pick them up
 
 ## Per-deployment compose files
 

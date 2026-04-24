@@ -176,7 +176,7 @@ wheels = [
 
 [[package]]
 name = "dotconfig"
-version = "0.20260411.1"
+version = "0.20260423.3"
 source = { editable = "../../code-projects/dotconfig" }
 dependencies = [
     { name = "click" },
@@ -594,7 +594,7 @@ wheels = [
 
 [[package]]
 name = "rundbat"
-version = "0.20260411.10"
+version = "0.20260424.5"
 source = { editable = "." }
 dependencies = [
     { name = "pyyaml" },

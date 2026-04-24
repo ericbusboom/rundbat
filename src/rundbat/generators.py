@@ -61,11 +61,13 @@ def detect_framework(project_dir: Path) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 _DOCKERFILE_NODE = """\
+# syntax=docker/dockerfile:1
+
 # --- Build stage ---
 FROM node:20-alpine AS builder
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 COPY . .
 {build_step}
 
@@ -74,30 +76,50 @@ FROM node:20-alpine
 WORKDIR /app
 ENV NODE_ENV=production
 {copy_step}
+USER node
 EXPOSE ${{PORT:-3000}}
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \\
+    CMD node -e "require('http').get('http://localhost:'+(process.env.PORT||3000),r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
 CMD {cmd}
 """
 
 _DOCKERFILE_PYTHON = """\
+# syntax=docker/dockerfile:1
+
+# --- Build stage ---
+FROM python:3.12-slim AS builder
+WORKDIR /app
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements*.txt pyproject.toml* ./
+RUN --mount=type=cache,target=/root/.cache/pip \\
+    pip install -r requirements.txt 2>/dev/null \\
+    || pip install . 2>/dev/null \\
+    || true
+
+# --- Runtime stage ---
 FROM python:3.12-slim
 WORKDIR /app
-
-COPY requirements*.txt pyproject.toml* ./
-RUN pip install --no-cache-dir -r requirements.txt 2>/dev/null \\
-    || pip install --no-cache-dir . 2>/dev/null \\
-    || true
-COPY . .
+RUN adduser --system --no-create-home --uid 1000 appuser
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY --chown=appuser . .
 {extra_step}
+USER appuser
 EXPOSE ${{PORT:-8000}}
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \\
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/',timeout=3)" || exit 1
 CMD {cmd}
 """
 
 _DOCKERFILE_ASTRO = """\
+# syntax=docker/dockerfile:1
+
 # --- Deps stage ---
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # --- Build stage ---
 FROM node:20-alpine AS build
@@ -107,10 +129,12 @@ COPY . .
 RUN npm run build
 
 # --- Runtime stage ---
-FROM nginx:alpine
+FROM nginxinc/nginx-unprivileged:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \\
+    CMD wget --quiet --tries=1 --spider http://localhost:8080/ || exit 1
 CMD ["nginx", "-g", "daemon off;"]
 """
 
@@ -163,13 +187,13 @@ def generate_dockerfile(framework: dict[str, str]) -> str:
         if fw == "next":
             return _DOCKERFILE_NODE.format(
                 build_step="RUN npm run build",
-                copy_step="COPY --from=builder /app/.next ./.next\nCOPY --from=builder /app/node_modules ./node_modules\nCOPY --from=builder /app/package.json ./",
+                copy_step="COPY --chown=node:node --from=builder /app/.next ./.next\nCOPY --chown=node:node --from=builder /app/node_modules ./node_modules\nCOPY --chown=node:node --from=builder /app/package.json ./",
                 cmd='["npm", "start"]',
             )
         # Express or generic Node
         return _DOCKERFILE_NODE.format(
             build_step="",
-            copy_step="COPY --from=builder /app ./",
+            copy_step="COPY --chown=node:node --from=builder /app ./",
             cmd='["npm", "start"]',
         )
 
