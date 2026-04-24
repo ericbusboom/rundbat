@@ -74,3 +74,4 @@ docker --context <ctx> secret ls | grep <app>
 | "no such service" on `rundbat logs` | Service name is `<stack>_<svc>`, not `<svc>` | Use `docker service ls` to see real names |
 | "secret not found" | External secret name mismatch with generated compose | `docker secret ls`; see `docker-secrets-swarm` |
 | Deploy succeeds but app unreachable | Caddy labels under top-level `labels:` are ignored in Swarm | `rundbat generate` — labels must live under `deploy.labels` |
+| `invalid image reference for service app: no image specified` | Swarm cannot build — it pulls by `image:` tag. The deployment is missing the `image:` field (or the generated compose has only `build:`). | Set `deployments.<name>.image: <tag>` in `rundbat.yaml` and re-run `rundbat generate`. See `docker-swarm-deploy` → Image requirement. `rundbat generate` now catches this at generate time, so after upgrade the error surfaces earlier. |

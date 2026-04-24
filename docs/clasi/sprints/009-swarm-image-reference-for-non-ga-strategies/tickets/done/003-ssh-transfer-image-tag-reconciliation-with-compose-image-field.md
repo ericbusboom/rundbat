@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: ssh-transfer image tag reconciliation with compose image field
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:
@@ -31,16 +31,16 @@ Bump `pyproject.toml` version.
 
 ## Acceptance Criteria
 
-- [ ] `_get_buildable_images()` returns the `image:` field value for
+- [x] `_get_buildable_images()` returns the `image:` field value for
       any service that has both `image:` and `build:`.
-- [ ] Services with `build:` but no `image:` still resolve to the
+- [x] Services with `build:` but no `image:` still resolve to the
       compose-default `<project>-<service>` (regression preserved).
-- [ ] Services with only `image:` and no `build:` are excluded
+- [x] Services with only `image:` and no `build:` are excluded
       (current behavior preserved).
-- [ ] New unit tests cover: image+build present → image tag;
+- [x] New unit tests cover: image+build present → image tag;
       build only → default tag; image only → excluded.
-- [ ] `uv run pytest` passes.
-- [ ] Version bumped in `pyproject.toml`.
+- [x] `uv run pytest` passes.
+- [x] Version bumped in `pyproject.toml`.
 
 ## Testing
 

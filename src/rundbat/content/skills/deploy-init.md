@@ -140,6 +140,26 @@ is active, the user is asked:
 - **Not detected**: no prompt appears; proceed with defaults.
 - **Probe unreachable**: a warning is printed and defaults are used.
 
+### Step 6c: Image tag (stack-mode with build-on-host strategy)
+
+When the user accepts the Swarm opt-in AND `build_strategy` is
+`context` or `ssh-transfer`, the CLI prompts for an image tag:
+
+> `Image tag for this stack deployment (Swarm pulls this tag — it must
+> match what your build produces): [<app_name>:<deployment>]`
+
+- Press enter to accept the default `<app_name>:<deployment>`.
+- Enter a custom tag (e.g. `myapp:v1.2.3`) to pin a specific version.
+- In `--json` mode the default is auto-filled.
+
+The tag is saved as `deployments.<name>.image` and ends up in the
+generated compose's `services.app.image:` field. `rundbat build` tags
+the built image with this value so `rundbat up` / `docker stack
+deploy` can pull it on the swarm nodes.
+
+`build_strategy: github-actions` is exempt — it has its own
+registry image default (`ghcr.io/owner/<app>:latest`).
+
 See the `docker-swarm-deploy` skill for when to prefer Swarm.
 
 ### Step 7: Environment Configuration
