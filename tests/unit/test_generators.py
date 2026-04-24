@@ -805,6 +805,64 @@ class TestGenerateComposeSwarm:
         assert "deploy" not in app
 
 
+class TestGenerateComposeSwarmSecrets:
+    """T04 — Swarm-native secret stanza emission."""
+
+    def test_swarm_emits_top_level_secrets_stanza(self):
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD", "SESSION_SECRET"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        assert "secrets" in data
+        assert data["secrets"]["myapp_postgres_password"] == {"external": True}
+        assert data["secrets"]["myapp_session_secret"] == {"external": True}
+
+    def test_swarm_service_secrets_attachment(self):
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        app = data["services"]["app"]
+        assert app["secrets"] == [
+            {"source": "myapp_postgres_password", "target": "postgres_password"},
+        ]
+
+    def test_swarm_file_env_var_set(self):
+        """_FILE env var points at /run/secrets/<target>."""
+        cfg = _swarm_deploy_cfg(secrets=["POSTGRES_PASSWORD"])
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        env = data["services"]["app"]["environment"]
+        assert env["POSTGRES_PASSWORD_FILE"] == "/run/secrets/postgres_password"
+
+    def test_swarm_no_secrets_emits_no_stanza(self):
+        cfg = _swarm_deploy_cfg()
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load("\n".join(out.splitlines()[1:]))
+        assert "secrets" not in data
+        assert "secrets" not in data["services"]["app"]
+
+    def test_non_swarm_with_secrets_emits_no_swarm_stanza(self):
+        """Regression: compose-mode deployments never emit swarm secret stanzas."""
+        cfg = {
+            "docker_context": "prod",
+            "build_strategy": "context",
+            "secrets": ["POSTGRES_PASSWORD"],
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        data = yaml.safe_load(out)
+        assert "secrets" not in data
+        assert "secrets" not in data["services"]["app"]
+
+
 class TestGenerateJustfileStackMode:
     def test_stack_mode_recipes(self):
         deployments = {

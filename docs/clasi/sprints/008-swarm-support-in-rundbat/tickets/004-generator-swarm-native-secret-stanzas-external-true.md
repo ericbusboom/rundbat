@@ -1,11 +1,13 @@
 ---
-id: "004"
-title: "Generator: Swarm-native secret stanzas (external: true)"
-status: todo
-use-cases: [SUC-002]
-depends-on: ["003"]
-github-issue: ""
-todo: ""
+id: '004'
+title: 'Generator: Swarm-native secret stanzas (external: true)'
+status: in-progress
+use-cases:
+- SUC-002
+depends-on:
+- '003'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -62,18 +64,18 @@ env-file generation uses for secret keys).
 
 ## Acceptance Criteria
 
-- [ ] Swarm-mode deployment with declared secrets emits a top-level
+- [x] Swarm-mode deployment with declared secrets emits a top-level
       `secrets:` stanza with `external: true` entries
-- [ ] Each declared secret gets a per-service `secrets:` attachment
+- [x] Each declared secret gets a per-service `secrets:` attachment
       with `target: <key_lowercase>`
-- [ ] The corresponding `_FILE` env-var is set to
+- [x] The corresponding `_FILE` env-var is set to
       `/run/secrets/<target>` on the service
-- [ ] Swarm-mode deployment with no declared secrets emits NO
+- [x] Swarm-mode deployment with no declared secrets emits NO
       top-level `secrets:` block and no per-service `secrets:`
       attachments
-- [ ] Compose-mode (swarm: false) is unchanged (regression)
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] Compose-mode (swarm: false) is unchanged (regression)
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 
