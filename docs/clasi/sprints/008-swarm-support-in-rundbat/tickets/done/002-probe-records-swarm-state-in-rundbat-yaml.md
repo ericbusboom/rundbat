@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: Probe records Swarm state in rundbat.yaml
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on:

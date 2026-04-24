@@ -1,7 +1,7 @@
 ---
 id: '006'
 title: deploy-init Swarm prompt (auto-probe, offer swarm opt-in)
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:

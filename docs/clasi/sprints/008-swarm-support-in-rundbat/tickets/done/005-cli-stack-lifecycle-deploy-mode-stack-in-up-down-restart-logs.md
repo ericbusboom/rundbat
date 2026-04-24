@@ -1,7 +1,7 @@
 ---
 id: '005'
 title: 'CLI stack lifecycle (deploy_mode: stack in up/down/restart/logs)'
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on:

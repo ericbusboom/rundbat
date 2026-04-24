@@ -1,7 +1,7 @@
 ---
 id: '007'
 title: rundbat secret create command (dotconfig to Swarm secret)
-status: in-progress
+status: done
 use-cases:
 - SUC-004
 depends-on: []

@@ -1,7 +1,7 @@
 ---
 id: '003'
 title: 'Generator: swarm plumbing (deploy blocks, Caddy label placement, stack header)'
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on: []

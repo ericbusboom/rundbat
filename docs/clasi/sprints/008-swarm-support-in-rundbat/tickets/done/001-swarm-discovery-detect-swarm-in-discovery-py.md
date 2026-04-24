@@ -1,7 +1,7 @@
 ---
 id: '001'
 title: 'Swarm discovery: detect_swarm() in discovery.py'
-status: in-progress
+status: done
 use-cases:
 - SUC-001
 depends-on: []

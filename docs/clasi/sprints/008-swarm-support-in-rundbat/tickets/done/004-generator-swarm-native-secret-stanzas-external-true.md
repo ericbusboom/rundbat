@@ -1,7 +1,7 @@
 ---
 id: '004'
 title: 'Generator: Swarm-native secret stanzas (external: true)'
-status: in-progress
+status: done
 use-cases:
 - SUC-002
 depends-on:

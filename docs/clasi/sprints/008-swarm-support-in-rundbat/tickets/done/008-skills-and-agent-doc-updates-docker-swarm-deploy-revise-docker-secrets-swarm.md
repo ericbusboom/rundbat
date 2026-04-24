@@ -1,7 +1,7 @@
 ---
 id: 008
 title: Skills and agent doc updates (docker-swarm-deploy, revise docker-secrets-swarm)
-status: in-progress
+status: done
 use-cases: []
 depends-on:
 - '003'
