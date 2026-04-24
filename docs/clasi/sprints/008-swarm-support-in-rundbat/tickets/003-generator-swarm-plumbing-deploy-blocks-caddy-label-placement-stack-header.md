@@ -1,11 +1,12 @@
 ---
-id: "003"
-title: "Generator: swarm plumbing (deploy blocks, Caddy label placement, stack header)"
-status: todo
-use-cases: [SUC-002]
+id: '003'
+title: 'Generator: swarm plumbing (deploy blocks, Caddy label placement, stack header)'
+status: in-progress
+use-cases:
+- SUC-002
 depends-on: []
-github-issue: ""
-todo: ""
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -56,18 +57,18 @@ The `swarm: false` / absent path is unchanged.
 
 ## Acceptance Criteria
 
-- [ ] `generate_compose_for_deployment(..., swarm=True)` emits the
+- [x] `generate_compose_for_deployment(..., swarm=True)` emits the
       `# Deploy with: docker stack deploy -c ...` header as the
       first line
-- [ ] Caddy labels placed under `services.<app>.deploy.labels`
+- [x] Caddy labels placed under `services.<app>.deploy.labels`
       (NOT top-level `labels`)
-- [ ] Every service has a `deploy:` block with the four properties
-- [ ] `swarm=False` output unchanged (regression test)
-- [ ] `generate_justfile` emits `docker stack deploy` / `docker
+- [x] Every service has a `deploy:` block with the four properties
+- [x] `swarm=False` output unchanged (regression test)
+- [x] `generate_justfile` emits `docker stack deploy` / `docker
       stack rm` / `docker service logs` when `deploy_mode: stack`
-- [ ] Unit tests cover swarm-True output and swarm-False regression
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] Unit tests cover swarm-True output and swarm-False regression
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 

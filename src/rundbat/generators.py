@@ -362,6 +362,32 @@ def _port_for_framework(framework: dict[str, str]) -> str:
     return "8000"
 
 
+_SWARM_DEPLOY_BLOCK: dict[str, Any] = {
+    "replicas": 1,
+    "restart_policy": {"condition": "on-failure"},
+    "update_config": {"order": "start-first"},
+}
+
+
+def _swarm_deploy_block() -> dict[str, Any]:
+    """Return a fresh copy of the minimal per-service Swarm deploy block."""
+    import copy
+    return copy.deepcopy(_SWARM_DEPLOY_BLOCK)
+
+
+def _stack_name_for(app_name: str, deployment_name: str,
+                    deployment_cfg: dict[str, Any]) -> str:
+    """Return the Swarm stack name for a deployment.
+
+    Uses ``deployment_cfg['stack_name']`` if present, otherwise
+    ``<app_name>_<deployment_name>``.
+    """
+    explicit = deployment_cfg.get("stack_name")
+    if explicit:
+        return str(explicit)
+    return f"{app_name}_{deployment_name}"
+
+
 def generate_compose_for_deployment(
     app_name: str,
     framework: dict[str, str],
@@ -377,6 +403,14 @@ def generate_compose_for_deployment(
         deployment_name: The deployment name (dev, local, prod, etc.).
         deployment_cfg: The deployment entry from rundbat.yaml.
         all_services: All project-level services from rundbat.yaml.
+
+    Swarm behavior: when ``deployment_cfg['swarm']`` is True, the
+    generated file is prefixed with a ``# Deploy with: docker stack
+    deploy`` header, Caddy labels move under ``services.<svc>.deploy.
+    labels`` (Swarm's labels-live-under-deploy rule), and every
+    service gets a minimal ``deploy:`` block with a single replica,
+    an on-failure restart policy, and a start-first rolling update.
+    Declared secrets (T04) emit ``secrets: external: true`` stanzas.
     """
     port = _port_for_framework(framework)
     build_strategy = deployment_cfg.get("build_strategy", "context")
@@ -385,6 +419,7 @@ def generate_compose_for_deployment(
     deploy_mode = deployment_cfg.get("deploy_mode", "compose")
     image = deployment_cfg.get("image")
     dep_services = deployment_cfg.get("services")
+    swarm = bool(deployment_cfg.get("swarm"))
 
     compose: dict[str, Any] = {"services": {}, "volumes": {}}
 
@@ -403,12 +438,15 @@ def generate_compose_for_deployment(
     else:
         app_svc["build"] = {"context": "..", "dockerfile": "docker/Dockerfile"}
 
-    # Caddy labels
+    # Caddy labels — placement depends on swarm mode
+    caddy_labels: dict[str, str] | None = None
     if hostname and reverse_proxy == "caddy":
-        app_svc["labels"] = {
+        caddy_labels = {
             "caddy": hostname,
             "caddy.reverse_proxy": "{{upstreams " + port + "}}",
         }
+        if not swarm:
+            app_svc["labels"] = caddy_labels
 
     # Filter services for this deployment
     included_services = []
@@ -451,10 +489,83 @@ def generate_compose_for_deployment(
         template["restart"] = "unless-stopped"
         compose["services"][svc_type] = template
 
+    # Swarm-mode augmentation — deploy blocks, label placement, secrets
+    if swarm:
+        # Per-service deploy block. Caddy labels attach to the app
+        # service's deploy.labels (Swarm honors labels under deploy).
+        for svc_name, svc_body in compose["services"].items():
+            deploy_block = _swarm_deploy_block()
+            if svc_name == "app" and caddy_labels is not None:
+                deploy_block["labels"] = dict(caddy_labels)
+            svc_body["deploy"] = deploy_block
+
+        # Secret stanzas (T04)
+        declared_secrets = _collect_declared_secrets(deployment_cfg,
+                                                    included_services)
+        if declared_secrets:
+            top_secrets: dict[str, Any] = {}
+            for key in declared_secrets:
+                secret_ref = f"{app_name}_{key.lower()}"
+                top_secrets[secret_ref] = {"external": True}
+            compose["secrets"] = top_secrets
+
+            # Attach to app service only — the app is what consumes
+            # these secrets via _FILE env vars. Database services
+            # receive their credentials through the existing env_file
+            # path for now.
+            app_secret_attachments = []
+            app_env = app_svc.setdefault("environment", {})
+            for key in declared_secrets:
+                target = key.lower()
+                secret_ref = f"{app_name}_{target}"
+                app_secret_attachments.append({
+                    "source": secret_ref,
+                    "target": target,
+                })
+                app_env[f"{key.upper()}_FILE"] = f"/run/secrets/{target}"
+            app_svc["secrets"] = app_secret_attachments
+
     if not compose["volumes"]:
         del compose["volumes"]
 
-    return yaml.dump(compose, default_flow_style=False, sort_keys=False)
+    body = yaml.dump(compose, default_flow_style=False, sort_keys=False)
+
+    if swarm:
+        stack = _stack_name_for(app_name, deployment_name, deployment_cfg)
+        compose_rel = f"docker/docker-compose.{deployment_name}.yml"
+        header = f"# Deploy with: docker stack deploy -c {compose_rel} {stack}\n"
+        return header + body
+
+    return body
+
+
+def _collect_declared_secrets(deployment_cfg: dict[str, Any],
+                              included_services: list[dict[str, Any]]) -> list[str]:
+    """Return the list of declared secret keys for a deployment.
+
+    Reads ``deployment_cfg['secrets']`` when set (a list of uppercase
+    key names like ``["POSTGRES_PASSWORD", "SESSION_SECRET"]``). Falls
+    back to scanning each included service for a ``secrets`` list.
+    Keys are returned in the exact order they appear, with duplicates
+    removed.
+    """
+    seen: set[str] = set()
+    keys: list[str] = []
+
+    for raw in deployment_cfg.get("secrets") or []:
+        k = str(raw)
+        if k and k not in seen:
+            seen.add(k)
+            keys.append(k)
+
+    for svc in included_services:
+        for raw in svc.get("secrets") or []:
+            k = str(raw)
+            if k and k not in seen:
+                seen.add(k)
+                keys.append(k)
+
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -533,11 +644,38 @@ def generate_justfile(app_name: str, services: list[dict[str, Any]] | None = Non
         build_strategy = dep_cfg.get("build_strategy", "context")
         is_remote = ctx and ctx != "default"
         ctx_prefix = f"DOCKER_CONTEXT={ctx} " if is_remote else ""
+        stack_name = _stack_name_for(app_name, dep_name, dep_cfg)
 
         lines.append(f"# --- {dep_name} ---")
         lines.append("")
 
-        if deploy_mode == "run":
+        if deploy_mode == "stack":
+            # Swarm stack lifecycle. Build stays on compose — stack is
+            # a deploy-only operation.
+            if build_strategy == "github-actions":
+                lines.extend([
+                    f"{dep_name}_build:",
+                    f"    echo 'Build is handled by GitHub Actions for {dep_name}'",
+                    "",
+                ])
+            else:
+                lines.extend([
+                    f"{dep_name}_build:",
+                    f"    {ctx_prefix}docker compose -f {compose_file} build",
+                    "",
+                ])
+            lines.extend([
+                f"{dep_name}_up:",
+                f"    {ctx_prefix}docker stack deploy -c {compose_file} {stack_name}",
+                "",
+                f"{dep_name}_down:",
+                f"    {ctx_prefix}docker stack rm {stack_name}",
+                "",
+                f"{dep_name}_logs *ARGS:",
+                f"    {ctx_prefix}docker service logs -f {stack_name}_app {{{{ARGS}}}}",
+                "",
+            ])
+        elif deploy_mode == "run":
             docker_run_cmd = dep_cfg.get("docker_run_cmd", "")
             image = dep_cfg.get("image", f"ghcr.io/owner/{app_name}:latest")
             lines.extend([

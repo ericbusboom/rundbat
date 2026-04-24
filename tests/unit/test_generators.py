@@ -718,3 +718,131 @@ class TestAddService:
         assert result["status"] == "added"
         compose = yaml.safe_load((tmp_path / "docker" / "docker-compose.yml").read_text())
         assert "redis" in compose["services"]
+
+
+# ---------------------------------------------------------------------------
+# Swarm plumbing in generate_compose_for_deployment (T03)
+# ---------------------------------------------------------------------------
+
+_FRAMEWORK_EXPRESS = {"language": "node", "framework": "express",
+                      "entry_point": "npm start"}
+
+
+def _swarm_deploy_cfg(**overrides):
+    cfg = {
+        "docker_context": "prod-host",
+        "build_strategy": "context",
+        "swarm": True,
+    }
+    cfg.update(overrides)
+    return cfg
+
+
+class TestGenerateComposeSwarm:
+    def test_swarm_emits_header(self):
+        """Swarm output is prefixed with a 'docker stack deploy' header."""
+        cfg = _swarm_deploy_cfg()
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg, all_services=None
+        )
+        first_line = out.splitlines()[0]
+        assert first_line.startswith("# Deploy with: docker stack deploy")
+        assert "docker/docker-compose.prod.yml" in first_line
+        assert "myapp_prod" in first_line  # default stack name
+
+    def test_swarm_header_uses_stack_name_override(self):
+        cfg = _swarm_deploy_cfg(stack_name="custom_stack")
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        assert out.splitlines()[0].endswith("custom_stack")
+
+    def test_swarm_caddy_labels_under_deploy(self):
+        """When swarm=True, Caddy labels live under services.app.deploy.labels."""
+        cfg = _swarm_deploy_cfg(hostname="app.example.com", reverse_proxy="caddy")
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        # Strip the header line before parsing
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        app = data["services"]["app"]
+        assert "labels" not in app
+        assert "deploy" in app
+        assert app["deploy"]["labels"]["caddy"] == "app.example.com"
+
+    def test_swarm_deploy_block_per_service(self):
+        """Every service gets a deploy: block with the standard fields."""
+        cfg = _swarm_deploy_cfg()
+        all_services = [{"type": "postgres", "version": "16"}]
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg, all_services=all_services
+        )
+        body = "\n".join(out.splitlines()[1:])
+        data = yaml.safe_load(body)
+        for svc_name in ("app", "postgres"):
+            deploy = data["services"][svc_name]["deploy"]
+            assert deploy["replicas"] == 1
+            assert deploy["restart_policy"]["condition"] == "on-failure"
+            assert deploy["update_config"]["order"] == "start-first"
+
+    def test_swarm_false_unchanged_regression(self):
+        """Compose-mode output (swarm absent) still emits top-level labels."""
+        cfg = {
+            "docker_context": "prod-host",
+            "build_strategy": "context",
+            "hostname": "app.example.com",
+            "reverse_proxy": "caddy",
+        }
+        out = generate_compose_for_deployment(
+            "myapp", _FRAMEWORK_EXPRESS, "prod", cfg
+        )
+        # No header
+        assert not out.splitlines()[0].startswith("# Deploy with:")
+        data = yaml.safe_load(out)
+        app = data["services"]["app"]
+        assert app["labels"]["caddy"] == "app.example.com"
+        assert "deploy" not in app
+
+
+class TestGenerateJustfileStackMode:
+    def test_stack_mode_recipes(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "stack",
+                "swarm": True,
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "docker stack deploy -c docker/docker-compose.prod.yml myapp_prod" in out
+        assert "docker stack rm myapp_prod" in out
+        assert "docker service logs -f myapp_prod_app" in out
+        # build is NOT stack — still uses docker compose
+        assert "docker compose -f docker/docker-compose.prod.yml build" in out
+
+    def test_stack_mode_uses_stack_name_override(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "stack",
+                "stack_name": "custom_stack",
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "custom_stack" in out
+        assert "myapp_prod" not in out.replace("myapp_prod_build", "")  # no default name
+
+    def test_compose_mode_unchanged_regression(self):
+        deployments = {
+            "prod": {
+                "docker_context": "prod-host",
+                "deploy_mode": "compose",
+                "build_strategy": "context",
+            }
+        }
+        out = generate_justfile("myapp", services=None, deployments=deployments)
+        assert "docker stack deploy" not in out
+        assert "docker compose -f docker/docker-compose.prod.yml up -d" in out
