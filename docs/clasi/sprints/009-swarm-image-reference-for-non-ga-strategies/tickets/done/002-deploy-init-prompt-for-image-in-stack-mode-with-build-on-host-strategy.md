@@ -1,7 +1,7 @@
 ---
 id: '002'
 title: deploy-init prompt for image in stack mode with build-on-host strategy
-status: in-progress
+status: done
 use-cases:
 - SUC-003
 depends-on:
@@ -35,20 +35,20 @@ Bump `pyproject.toml` version.
 
 ## Acceptance Criteria
 
-- [ ] After swarm opt-in, if strategy is context/ssh-transfer and no
+- [x] After swarm opt-in, if strategy is context/ssh-transfer and no
       image is set, `cmd_deploy_init` prompts for an image tag with
       default `<app_name>:<deployment_name>`.
-- [ ] The saved `deployments.<name>.image` reflects the user's input
+- [x] The saved `deployments.<name>.image` reflects the user's input
       (or the default if the user pressed enter).
-- [ ] When `args.json` is set, the prompt is skipped and the default
+- [x] When `args.json` is set, the prompt is skipped and the default
       tag is used.
-- [ ] When strategy is `github-actions`, no prompt appears.
-- [ ] When the user did not opt into stack mode, no prompt appears.
-- [ ] New test in `tests/unit/test_cli.py` (or an existing
+- [x] When strategy is `github-actions`, no prompt appears.
+- [x] When the user did not opt into stack mode, no prompt appears.
+- [x] New test in `tests/unit/test_cli.py` (or an existing
       deploy-init test file) exercises the JSON path — stack opt-in
       + ssh-transfer strategy → saved config has `image:`.
-- [ ] `uv run pytest` passes.
-- [ ] Version bumped in `pyproject.toml`.
+- [x] `uv run pytest` passes.
+- [x] Version bumped in `pyproject.toml`.
 
 ## Testing
 

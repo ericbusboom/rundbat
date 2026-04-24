@@ -1,13 +1,13 @@
 ---
-id: "003"
-title: "ssh-transfer image tag reconciliation with compose image field"
-status: todo
+id: '003'
+title: ssh-transfer image tag reconciliation with compose image field
+status: in-progress
 use-cases:
-  - SUC-001
+- SUC-001
 depends-on:
-  - "001"
-github-issue: ""
-todo: ""
+- '001'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
