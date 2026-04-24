@@ -292,7 +292,7 @@ def generate_compose(
     # App service
     app_svc: dict[str, Any] = {
         "build": {"context": "..", "dockerfile": "docker/Dockerfile"},
-        "ports": [f"${{{app_name.upper()}_PORT:-{port}}}:{port}"],
+        "ports": [f"${{{app_name.upper().replace('-', '_')}_PORT:-{port}}}:{port}"],
         "env_file": ["../.env"],
         "restart": "unless-stopped",
     }
@@ -425,7 +425,7 @@ def generate_compose_for_deployment(
 
     # App service
     app_svc: dict[str, Any] = {
-        "ports": [f"${{{app_name.upper()}_PORT:-{port}}}:{port}"],
+        "ports": [f"${{{app_name.upper().replace('-', '_')}_PORT:-{port}}}:{port}"],
         "env_file": [f".{deployment_name}.env"],
         "restart": "unless-stopped",
     }
@@ -493,7 +493,10 @@ def generate_compose_for_deployment(
     if swarm:
         # Per-service deploy block. Caddy labels attach to the app
         # service's deploy.labels (Swarm honors labels under deploy).
+        # Service-level `restart:` is ignored by Swarm (warns at deploy);
+        # `deploy.restart_policy` handles it.
         for svc_name, svc_body in compose["services"].items():
+            svc_body.pop("restart", None)
             deploy_block = _swarm_deploy_block()
             if svc_name == "app" and caddy_labels is not None:
                 deploy_block["labels"] = dict(caddy_labels)

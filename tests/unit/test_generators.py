@@ -629,7 +629,7 @@ class TestGenerateArtifacts:
             json.dumps({"name": "myapp", "dependencies": {"express": "^4"}})
         )
         cfg = {
-            "app_name": "myapp",
+            "app_name": "my-app",  # hyphen stresses env-var naming
             "deployments": {
                 "prod": {
                     "docker_context": "swarm-mgr",
@@ -646,6 +646,14 @@ class TestGenerateArtifacts:
         content = compose.read_text()
         assert "docker stack deploy" in content  # header comment
         assert "deploy:" in content
+        # Swarm ignores service-level `restart:` (warns at deploy); the
+        # deploy.restart_policy block handles it. We must not emit both.
+        loaded = yaml.safe_load(content)
+        assert "restart" not in loaded["services"]["app"]
+        # App-name hyphens must become underscores in the PORT env var
+        # (shell var names cannot contain `-`).
+        assert "MY_APP_PORT" in content
+        assert "MY-APP_PORT" not in content
 
     def test_single_deployment_flag(self, tmp_path):
         (tmp_path / "package.json").write_text(
