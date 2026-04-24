@@ -278,9 +278,9 @@ def cmd_deploy_init(args):
 
 
 def cmd_probe(args):
-    """Probe a deployment target for reverse proxy detection."""
+    """Probe a deployment target for reverse proxy and Swarm detection."""
     from rundbat import config
-    from rundbat.discovery import detect_caddy
+    from rundbat.discovery import detect_caddy, detect_swarm
     from rundbat.config import ConfigError
 
     try:
@@ -304,13 +304,61 @@ def cmd_probe(args):
     caddy = detect_caddy(ctx)
     reverse_proxy = "caddy" if caddy["running"] else "none"
     dep["reverse_proxy"] = reverse_proxy
+
+    swarm_probe = detect_swarm(ctx)
+    _apply_swarm_probe_to_deployment(dep, swarm_probe)
+
     deployments[name] = dep
     cfg["deployments"] = deployments
     config.save_config(data=cfg)
 
-    result = {"deployment": name, "reverse_proxy": reverse_proxy,
-              "container": caddy.get("container")}
+    result = {
+        "deployment": name,
+        "reverse_proxy": reverse_proxy,
+        "container": caddy.get("container"),
+        "swarm": dep.get("swarm"),
+        "swarm_role": dep.get("swarm_role"),
+    }
     _output(result, args.json)
+
+
+def _apply_swarm_probe_to_deployment(dep: dict, probe: dict) -> None:
+    """Apply the swarm probe result to a deployment entry in-place.
+
+    Implements the transient-failure rule documented in the sprint 008
+    architecture update:
+
+    - Reachable + swarm active → write ``swarm: true`` and role.
+    - Reachable + swarm inactive → write ``swarm: false``; clear role.
+      This applies even when the prior value was ``true`` — the daemon
+      answered us, so the downgrade is authoritative.
+    - Unreachable AND prior is ``swarm: true`` → do nothing (transient
+      failure must not silently downgrade).
+    - Unreachable AND prior is absent / false / unknown → record
+      ``swarm: "unknown"`` and clear role.
+    """
+    prior = dep.get("swarm")
+    reachable = probe.get("reachable", False)
+    is_swarm = probe.get("swarm", False)
+    role = probe.get("swarm_role", "")
+
+    if reachable:
+        if is_swarm:
+            dep["swarm"] = True
+            if role:
+                dep["swarm_role"] = role
+            else:
+                dep.pop("swarm_role", None)
+        else:
+            dep["swarm"] = False
+            dep.pop("swarm_role", None)
+        return
+
+    # Unreachable: honour the transient-failure invariant.
+    if prior is True:
+        return  # keep the prior declared state; do NOT overwrite.
+    dep["swarm"] = "unknown"
+    dep.pop("swarm_role", None)
 
 
 def cmd_generate(args):

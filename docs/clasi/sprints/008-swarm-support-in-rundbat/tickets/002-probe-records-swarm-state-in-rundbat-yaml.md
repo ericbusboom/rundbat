@@ -1,11 +1,13 @@
 ---
-id: "002"
-title: "Probe records Swarm state in rundbat.yaml"
-status: todo
-use-cases: [SUC-001]
-depends-on: ["001"]
-github-issue: ""
-todo: ""
+id: '002'
+title: Probe records Swarm state in rundbat.yaml
+status: in-progress
+use-cases:
+- SUC-001
+depends-on:
+- '001'
+github-issue: ''
+todo: ''
 ---
 <!-- CLASI: Before changing code or making plans, review the SE process in CLAUDE.md -->
 
@@ -45,17 +47,17 @@ Invariant: an unreachable probe MUST NOT silently downgrade
 
 ## Acceptance Criteria
 
-- [ ] `cmd_probe` calls `detect_swarm(context)` after the Caddy probe
-- [ ] `swarm` and `swarm_role` are written to the deployment entry
+- [x] `cmd_probe` calls `detect_swarm(context)` after the Caddy probe
+- [x] `swarm` and `swarm_role` are written to the deployment entry
       (subject to the transient-failure rule)
-- [ ] Unreachable probe with prior `swarm: true` does NOT overwrite
-- [ ] `swarm: "unknown"` is written only when prior is absent AND
+- [x] Unreachable probe with prior `swarm: true` does NOT overwrite
+- [x] `swarm: "unknown"` is written only when prior is absent AND
       probe is unreachable
-- [ ] Probe still records `reverse_proxy` (regression)
-- [ ] `--json` output (if supported) includes swarm fields
-- [ ] Unit tests cover all six rows of the transient-failure table
-- [ ] `uv run pytest` passes
-- [ ] `pyproject.toml` version bumped
+- [x] Probe still records `reverse_proxy` (regression)
+- [x] `--json` output (if supported) includes swarm fields
+- [x] Unit tests cover all six rows of the transient-failure table
+- [x] `uv run pytest` passes
+- [x] `pyproject.toml` version bumped
 
 ## Testing
 

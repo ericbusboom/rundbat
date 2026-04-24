@@ -138,6 +138,20 @@ def _make_probe_args(name="prod", as_json=False):
     return args
 
 
+_SWARM_INACTIVE = {"swarm": False, "swarm_role": "", "reachable": True}
+_SWARM_MANAGER = {"swarm": True, "swarm_role": "manager", "reachable": True}
+_SWARM_WORKER = {"swarm": True, "swarm_role": "worker", "reachable": True}
+_SWARM_UNREACHABLE = {"swarm": False, "swarm_role": "", "reachable": False}
+
+
+def _patch_probe_helpers(monkeypatch, *, caddy=None, swarm=None):
+    """Install detect_caddy / detect_swarm fakes used by cmd_probe."""
+    caddy = caddy if caddy is not None else {"running": False, "container": None}
+    swarm = swarm if swarm is not None else dict(_SWARM_INACTIVE)
+    monkeypatch.setattr("rundbat.discovery.detect_caddy", lambda ctx: caddy)
+    monkeypatch.setattr("rundbat.discovery.detect_swarm", lambda ctx: swarm)
+
+
 def test_cmd_probe_saves_caddy(monkeypatch, capsys):
     """probe command saves reverse_proxy: caddy when Caddy detected."""
     saved_data = {}
@@ -154,12 +168,9 @@ def test_cmd_probe_saves_caddy(monkeypatch, capsys):
     def fake_save_config(data):
         saved_data.update(data)
 
-    def fake_detect_caddy(ctx):
-        return {"running": True, "container": "caddy"}
-
     monkeypatch.setattr("rundbat.config.load_config", fake_load_config)
     monkeypatch.setattr("rundbat.config.save_config", fake_save_config)
-    monkeypatch.setattr("rundbat.discovery.detect_caddy", fake_detect_caddy)
+    _patch_probe_helpers(monkeypatch, caddy={"running": True, "container": "caddy"})
 
     from rundbat.cli import cmd_probe
     cmd_probe(_make_probe_args(name="prod"))
@@ -181,12 +192,9 @@ def test_cmd_probe_saves_none_when_no_caddy(monkeypatch, capsys):
     def fake_save_config(data):
         saved_data.update(data)
 
-    def fake_detect_caddy(ctx):
-        return {"running": False, "container": None}
-
     monkeypatch.setattr("rundbat.config.load_config", fake_load_config)
     monkeypatch.setattr("rundbat.config.save_config", fake_save_config)
-    monkeypatch.setattr("rundbat.discovery.detect_caddy", fake_detect_caddy)
+    _patch_probe_helpers(monkeypatch)
 
     from rundbat.cli import cmd_probe
     cmd_probe(_make_probe_args(name="prod"))
@@ -209,6 +217,90 @@ def test_cmd_probe_unknown_deployment(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "prod" in captured.err
+
+
+def _run_probe_with_fakes(monkeypatch, deployment, *, caddy=None, swarm=None):
+    """Run cmd_probe against a single 'prod' deployment dict; return saved state."""
+    saved = {}
+
+    def fake_load_config():
+        # Return a deep-copy-ish view so cmd_probe's mutations only
+        # touch the test's local copy.
+        return {"deployments": {"prod": dict(deployment)}}
+
+    def fake_save_config(data):
+        saved.update(data)
+
+    monkeypatch.setattr("rundbat.config.load_config", fake_load_config)
+    monkeypatch.setattr("rundbat.config.save_config", fake_save_config)
+    _patch_probe_helpers(monkeypatch, caddy=caddy, swarm=swarm)
+    from rundbat.cli import cmd_probe
+    cmd_probe(_make_probe_args(name="prod"))
+    return saved["deployments"]["prod"]
+
+
+def test_probe_writes_swarm_true_manager(monkeypatch):
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx"},
+        swarm=dict(_SWARM_MANAGER),
+    )
+    assert dep["swarm"] is True
+    assert dep["swarm_role"] == "manager"
+
+
+def test_probe_writes_swarm_false_when_inactive(monkeypatch):
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx"},
+        swarm=dict(_SWARM_INACTIVE),
+    )
+    assert dep["swarm"] is False
+    assert "swarm_role" not in dep
+
+
+def test_probe_transient_failure_preserves_true(monkeypatch):
+    """Unreachable probe MUST NOT overwrite prior swarm: true."""
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx", "swarm": True, "swarm_role": "manager"},
+        swarm=dict(_SWARM_UNREACHABLE),
+    )
+    assert dep["swarm"] is True
+    assert dep["swarm_role"] == "manager"
+
+
+def test_probe_unreachable_from_absent_writes_unknown(monkeypatch):
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx"},
+        swarm=dict(_SWARM_UNREACHABLE),
+    )
+    assert dep["swarm"] == "unknown"
+    assert "swarm_role" not in dep
+
+
+def test_probe_reachable_downgrades_explicit_true_to_false(monkeypatch):
+    """A reachable daemon reporting inactive swarm authoritatively downgrades."""
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx", "swarm": True, "swarm_role": "manager"},
+        swarm=dict(_SWARM_INACTIVE),
+    )
+    assert dep["swarm"] is False
+    assert "swarm_role" not in dep
+
+
+def test_probe_still_records_caddy(monkeypatch):
+    """Regression: swarm plumbing didn't break the caddy probe."""
+    dep = _run_probe_with_fakes(
+        monkeypatch,
+        {"docker_context": "ctx"},
+        caddy={"running": True, "container": "caddy"},
+        swarm=dict(_SWARM_MANAGER),
+    )
+    assert dep["reverse_proxy"] == "caddy"
+    assert dep["swarm"] is True
 
 
 # ---------------------------------------------------------------------------
