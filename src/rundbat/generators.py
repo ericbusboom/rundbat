@@ -1110,7 +1110,7 @@ def generate_artifacts(
         if dep_cfg.get("build_strategy") == "github-actions":
             has_github_actions = True
 
-        if deploy_mode == "compose":
+        if deploy_mode in ("compose", "stack"):
             compose_content = generate_compose_for_deployment(
                 app_name, framework, dep_name, dep_cfg, all_services,
             )
